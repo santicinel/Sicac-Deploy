@@ -1,0 +1,41 @@
+MANUAL DE USUARIO - TECNICO
+SICAC / CEA INSUMOS
+Version: 1.0
+
+1. OBJETIVO
+Este manual describe tareas basicas para personal tecnico.
+
+2. INGRESO
+- Ir a login.
+- En entorno demo:
+  Email: tecnico@demo.com
+  Password: demo1234
+
+3. MODULOS DISPONIBLES
+- Mis reclamos.
+- Chat tecnico.
+
+4. TAREAS BASICAS
+4.1 Revisar reclamos
+- Abrir "Mis reclamos".
+- Filtrar por estado/prioridad si aplica.
+- Abrir detalle para diagnostico.
+
+4.2 Registrar avances
+- Cargar observaciones tecnicas claras.
+- Informar materiales y tiempos estimados.
+- Actualizar estado cuando corresponda.
+
+4.3 Chat tecnico
+- Usar mensajes breves y trazables.
+- Confirmar recepcion de instrucciones criticas.
+
+5. BUENAS PRACTICAS
+- Documentar causa raiz y solucion.
+- Evitar datos sensibles innecesarios en comentarios.
+- Mantener comunicacion profesional con cliente y admin.
+
+6. AYUDA RAPIDA
+- Si no ves reclamos: verifica rol tecnico.
+- Si no guarda cambios: recargar y reintentar.
+- Escalar incidencias bloqueantes a admin.

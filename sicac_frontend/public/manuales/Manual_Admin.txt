@@ -1,0 +1,51 @@
+MANUAL DE USUARIO - ADMIN
+SICAC / CEA INSUMOS
+Version: 1.0
+
+1. OBJETIVO
+Manual operativo para administradores de plataforma.
+
+2. INGRESO
+- Ir a login.
+- En entorno demo:
+  Email: admin@demo.com
+  Password: demo1234
+
+3. MODULOS DISPONIBLES
+- Reclamos.
+- Tecnicos.
+- Productos.
+- Puntajes.
+- Mano de obra.
+
+4. TAREAS BASICAS
+4.1 Gestion de reclamos
+- Ver cola completa.
+- Asignar tecnico segun especialidad.
+- Controlar SLA y cierre.
+
+4.2 Gestion de tecnicos
+- Alta/baja/edicion de perfiles.
+- Validar disponibilidad y datos de contacto.
+
+4.3 Gestion de productos
+- Crear y editar productos.
+- Revisar consistencia de precio y categoria.
+
+4.4 Puntajes y calidad
+- Revisar valoraciones.
+- Detectar desvio de calidad y definir acciones.
+
+4.5 Mano de obra
+- Configurar parametros de costos.
+- Revisar impacto en presupuestos.
+
+5. SEGURIDAD Y CONTROL
+- Usar credenciales personales.
+- Aplicar principio de minimo privilegio.
+- Auditar cambios relevantes periodicamente.
+
+6. AYUDA RAPIDA
+- Si no ves panel admin: revisar rol admin.
+- Si una vista falla: validar conectividad backend.
+- Si hay inconsistencia de datos: registrar incidente y trazar origen.

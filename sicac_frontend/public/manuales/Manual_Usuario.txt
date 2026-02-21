@@ -1,0 +1,41 @@
+MANUAL DE USUARIO - CLIENTE
+SICAC / CEA INSUMOS
+Version: 1.0
+
+1. OBJETIVO
+Este manual explica las acciones basicas para un cliente dentro de la aplicacion.
+
+2. INGRESO
+- Ir a la pantalla de login.
+- Ingresar email y contrasena.
+- En entorno demo puedes usar:
+  Email: cliente@demo.com
+  Password: demo1234
+
+3. NAVEGACION PRINCIPAL
+- Productos: ver catalogo, filtrar y buscar.
+- Recomendaciones IA: pedir sugerencias de productos.
+- Soporte y reclamos: crear y consultar reclamos.
+- Presupuesto: revisar items agregados y resumen.
+
+4. TAREAS BASICAS
+4.1 Buscar productos
+- Usa filtros por familia y subfamilia.
+- Usa buscador por nombre o SKU.
+
+4.2 Agregar al presupuesto
+- En cada tarjeta, seleccionar "Agregar al Presupuesto".
+- Revisar cantidades en el modulo Presupuesto.
+
+4.3 Crear reclamo
+- Ir a Soporte y reclamos.
+- Completar motivo y detalle.
+- Enviar y guardar numero de seguimiento.
+
+5. AYUDA RAPIDA
+- Si no inicia sesion: revisar email/password.
+- Si no carga catalogo: verificar conexion.
+- Si no ves opciones: confirma que ingresaste con rol cliente.
+
+6. CONTACTO INTERNO
+- Usar el canal de soporte definido por la empresa.

@@ -1,0 +1,246 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use Illuminate\Http\Request;
+use App\Http\Requests\UserRequest;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+
+class AuthController extends Controller
+{
+    public function register(UserRequest $request)
+    {
+        Log::info('User registration attempt', [
+            'email' => $request->input('email'),
+            'ip' => $request->ip(),
+        ]);
+
+        try {
+            $validated = $request->validated();
+
+            Log::debug('User registration validated', [
+                'email' => $validated['email'],
+                'name' => $validated['name'],
+            ]);
+
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'role' => 'user',
+                'dni' => $validated['dni'], 
+                'password' => Hash::make($validated['password']), 
+                'address' => $validated['address'],
+                'phone' => $validated['phone'],
+                'city' => $validated['city'],
+            ]);
+
+            Log::info('User registered successfully', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+            ]);
+
+            return response()->json([
+                'user' => $user,
+            ], 201);
+        } catch (\Exception $e) {
+            Log::error('User registration failed', [
+                'email' => $request->input('email'),
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
+    }
+
+    public function login(Request $request)
+    {
+        return $this->loginByRole($request, null);
+    }
+
+    public function loginAdmin(Request $request)
+    {
+        return $this->loginByRole($request, 'admin');
+    }
+
+    public function loginTechnician(Request $request)
+    {
+        return $this->loginByRole($request, 'technician');
+    }
+
+    public function loginUser(Request $request)
+    {
+        return $this->loginByRole($request, 'user');
+    }
+
+    private function loginByRole(Request $request, ?string $role)
+    {
+        Log::info('User login attempt', [
+            'email' => $request->input('email'),
+            'ip' => $request->ip(),
+            'required_role' => $role,
+        ]);
+
+        try {
+            $credentials = $request->validate([
+                'email' => ['required', 'email'],
+                'password' => ['required', 'string'],
+            ]);
+
+            if ($role !== null) {
+                $credentials['role'] = $role;
+            }
+
+            if (!Auth::attempt($credentials, $request->boolean('remember'))) {
+                Log::warning('User login failed - invalid credentials', [
+                    'email' => $request->input('email'),
+                    'ip' => $request->ip(),
+                    'required_role' => $role,
+                ]);
+
+                throw ValidationException::withMessages([
+                    'email' => ['The provided credentials are incorrect.'],
+                ]);
+            }
+
+            $request->session()->regenerate();
+
+            Log::info('User logged in successfully', [
+                'user_id' => $request->user()->id,
+                'email' => $request->user()->email,
+                'role' => $request->user()->role,
+            ]);
+
+            return response()->json([
+                'ok' => true,
+                'user' => $request->user(),
+            ]);
+        } catch (ValidationException $e) {
+            Log::warning('User login validation error', [
+                'email' => $request->input('email'),
+                'errors' => $e->errors(),
+                'required_role' => $role,
+            ]);
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('User login error', [
+                'email' => $request->input('email'),
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'required_role' => $role,
+            ]);
+            throw $e;
+        }
+    }
+
+    public function logout(Request $request)
+    {
+        Auth::guard('web')->logout();   // force session guard
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function user(Request $request)
+    {
+        return response()->json([
+            'user' => $request->user(),
+        ]);
+    }
+
+    public function updateUser(Request $request)
+    {
+        $user = $request->user();
+        if (! $user) {
+            return response()->json([
+                'message' => 'No autenticado',
+            ], 401);
+        }
+
+        Log::info('User profile update attempt', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'ip' => $request->ip(),
+        ]);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'city' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $user->update([
+            'name' => trim($validated['name']),
+            'email' => trim($validated['email']),
+            'phone' => isset($validated['phone']) ? trim((string) $validated['phone']) : null,
+            'address' => isset($validated['address']) ? trim((string) $validated['address']) : null,
+            'city' => isset($validated['city']) ? trim((string) $validated['city']) : null,
+        ]);
+
+        $freshUser = $user->fresh();
+
+        Log::info('User profile updated successfully', [
+            'user_id' => $freshUser->id,
+            'email' => $freshUser->email,
+        ]);
+
+        return response()->json([
+            'user' => $freshUser,
+        ]);
+    }
+
+    public function createAdmin(UserRequest $request)
+    {
+        Log::info('Admin creation attempt', [
+            'requester_id' => $request->user()?->id,
+            'ip' => $request->ip(),
+        ]);
+
+        try {
+            $this->authorize('createAdmin', User::class);
+
+            $validated = $request->validated();
+
+            Log::debug('Admin creation validated', [
+                'email' => $validated['email'],
+                'name' => $validated['name'],
+            ]);
+
+            $admin = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'role' => 'admin',
+                'password' => Hash::make($validated['password']),
+                'address' => $validated['address'],
+                'phone' => $validated['phone'],
+                'city' => $validated['city'],
+            ]);
+
+            Log::info('Admin created successfully', [
+                'admin_id' => $admin->id,
+                'admin_email' => $admin->email,
+                'created_by' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'user' => $admin,
+            ], 201);
+        } catch (\Exception $e) {
+            Log::error('Admin creation failed', [
+                'requester_id' => $request->user()?->id,
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
+    }
+}
