@@ -1,3 +1,7 @@
+{
+    email {$CADDY_EMAIL:admin@example.com}
+}
+
 {$DOMAIN:localhost} {
     encode zstd gzip
 

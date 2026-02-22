@@ -1,0 +1,16 @@
+http://{$DOMAIN:localhost} {
+    encode zstd gzip
+
+    handle_path /ai/* {
+        reverse_proxy ai:8002
+    }
+
+    @backend path /api* /sanctum* /up /storage*
+    handle @backend {
+        reverse_proxy backend:8000
+    }
+
+    handle {
+        reverse_proxy frontend:80
+    }
+}

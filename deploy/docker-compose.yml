@@ -5,14 +5,18 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
     environment:
       DOMAIN: ${DOMAIN}
+      CADDY_EMAIL: ${CADDY_EMAIL:-admin@example.com}
     depends_on:
       - frontend
       - backend
       - ai
+    command: caddy run --config /etc/caddy/${CADDYFILE:-Caddyfile} --adapter caddyfile
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.http:/etc/caddy/Caddyfile.http:ro
       - caddy_data:/data
       - caddy_config:/config
 
