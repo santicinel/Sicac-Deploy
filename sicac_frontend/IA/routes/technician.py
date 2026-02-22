@@ -81,12 +81,39 @@ def find_relevant_manual_chunks(query: str, limit: int = 3):
     return [m[1] for m in matches[:limit]]
 
 
-api_key = os.getenv("GPT_API_KEY")
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.3,
-    api_key=api_key
+api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+llm = (
+    ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0.3,
+        api_key=api_key
+    )
+    if api_key
+    else None
 )
+
+
+def build_fallback_response(user_query: str, relevant_manuals: List[Dict[str, str]]) -> str:
+    intro = (
+        "Asistente tecnico en modo demo: falta configurar "
+        "GPT_API_KEY/OPENAI_API_KEY en el servicio de IA."
+    )
+    if not relevant_manuals:
+        return (
+            f"{intro} No encontre fragmentos directos en los manuales para: '{user_query}'. "
+            "Enviame modelo exacto, sintomas y pruebas ya realizadas."
+        )
+
+    lines = []
+    for item in relevant_manuals[:2]:
+        excerpt = item.get("content", "").replace("\n", " ").strip()[:260]
+        lines.append(f"- {item.get('source', 'manual')}: {excerpt}")
+
+    return (
+        f"{intro}\n\nFragmentos tecnicos relacionados:\n"
+        + "\n".join(lines)
+        + "\n\nPara diagnostico conversacional completo, agrega una API key y reinicia el servicio ai."
+    )
 
 
 class TechnicianChatRequest(BaseModel):
@@ -108,6 +135,9 @@ def technician_chat_endpoint(request: TechnicianChatRequest):
             manuals_context = "\nMANUALES RELEVANTES:\n"
             for item in relevant_manuals:
                 manuals_context += f"[{item['source']}]\n{item['content'][:1200]}\n\n"
+
+        if llm is None:
+            return {"response": build_fallback_response(user_query, relevant_manuals)}
 
         system_prompt = (
             "Tu nombre es Raul y puedes decir tu nombre si te lo preguntan. "

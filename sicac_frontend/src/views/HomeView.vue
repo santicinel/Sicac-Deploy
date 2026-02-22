@@ -104,25 +104,28 @@ const getImagePath = (product: CatalogProduct) => {
 
     const subfamilyImageMap: Record<string, Record<string, string>> = {
         acceso: {
-            auto: "automatización.png",
-            control: "control.png",
-            portero: "portero.png"
+            auto: "automatizacion.png",
+            automatizacion: "automatizacion.png",
+            control: "control de acceso.png",
+            controldeacceso: "control de acceso.png",
+            portero: "portero visor.png",
+            porterovisor: "portero visor.png"
         },
         alarmas: {
-            centrales: "centrales.png",
+            centrales: "alarma central.png",
             controles: "controles.png",
-            incendio: "incendio.png",
-            kits: "kits.png",
-            modulos: "modulo.png",
+            incendio: "alarma incendios.png",
+            kits: "kit.png",
+            modulos: "modulos-comunicadores.png",
             sensores: "sensores.png",
-            sirenas: "sirenas.png",
+            sirenas: "sirenas-antisabotaje.png",
             teclados: "teclados.png"
         },
         cctv: {
             accvideo: "accesorios de video.png",
             almacen: "almacenamiento.png",
-            camhd: "cámaras (analógicas-hd).png",
-            camip: "cámaras IP.png",
+            camhd: "camara analógica-hd.png",
+            camip: "camara IP.png",
             grabacion: "grabadores DVR-NVR.png"
         },
         infra: {
@@ -131,7 +134,7 @@ const getImagePath = (product: CatalogProduct) => {
             energia: "energía.png"
         },
         otros: {
-            general: "sin clasificar.png"
+            general: "otros.png"
         }
     };
 
@@ -157,7 +160,7 @@ const getImagePath = (product: CatalogProduct) => {
     const mapped = subfamilyImageMap[famKey]?.[subKey];
     if (mapped) return `/img/${folder}/${mapped}`;
 
-    return `/img/otros/sin clasificar.png`;
+    return `/img/otros/otros.png`;
 };
 
 
@@ -441,3 +444,4 @@ const getProductQuantity = (productId: string) => {
     scrollbar-width: none;
 }
 </style>
+

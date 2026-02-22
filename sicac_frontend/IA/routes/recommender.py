@@ -359,12 +359,43 @@ def select_manual_chunks(keys: List[str], keywords: List[str], limit: int = 6) -
         fallback.extend(MANUAL_CHUNKS.get(key, [])[:2])
     return fallback[:limit]
 # --- 4. LLM Setup ---
-api_key = os.getenv("GPT_API_KEY")
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.3, # Slightly higher for creative sales pitch
-    api_key=api_key
+api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+llm = (
+    ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0.3, # Slightly higher for creative sales pitch
+        api_key=api_key
+    )
+    if api_key
+    else None
 )
+
+
+def build_local_recommendation_response(
+    products: List[dict],
+    user_name: str,
+    user_req_desc: str,
+) -> str:
+    intro = (
+        f"Hola {user_name}, estoy en modo demo sin API key "
+        "(GPT_API_KEY/OPENAI_API_KEY no configurada)."
+    )
+    if not products:
+        return (
+            f"{intro} No encontre coincidencias fuertes en el catalogo con estos filtros: "
+            f"{user_req_desc or 'sin detalle'}."
+        )
+
+    lines = []
+    for p in products[:3]:
+        lines.append(
+            f"- {p.get('Nombre', 'Producto')} | SKU: {p.get('ID', 'N/D')} | Precio: ${p.get('Precio (ARS)', 'Consultar')}"
+        )
+    return (
+        f"{intro}\n\nOpciones encontradas por filtros locales:\n"
+        + "\n".join(lines)
+        + "\n\nSi queres recomendaciones conversacionales avanzadas, agrega una API key y reinicia el servicio ai."
+    )
 
 SYSTEM_PROMPT_TEMPLATE = """
 Sos Filippo, el vendedor experto en Inteligencia Artificial de CEA Insumos.
@@ -467,6 +498,12 @@ def run_recommendation(requests: List[RecommendationRequest], user_name: str = "
             user_request_description=user_req_desc,
             manuals_context=manuals_context
         )
+        if llm is None:
+            return {
+                "response": build_local_recommendation_response(all_results, user_name, user_req_desc),
+                "products": all_results,
+                "system_prompt_used": "demo_no_llm",
+            }
 
         messages = [
             SystemMessage(content=formatted_system_prompt),
@@ -493,8 +530,13 @@ def chat_sales_endpoint(request: ChatRequest):
         # (or we need to re-inject a generic one if missing, but maintaining context is harder).
         # Strategy: The frontend should append the previous Assistant response to the history.
         # But we need a System Prompt to define the Persona "Gustavo".
-        
-        # Check if first message is System, if not, prepend a generic Sales Persona
+        if llm is None:
+            return {
+                "response": (
+                    "Asistente comercial en modo demo: falta GPT_API_KEY/OPENAI_API_KEY. "
+                    "Puedo listar productos filtrados, pero no mantener chat avanzado en esta instancia."
+                )
+            }
         lc_messages = []
         
         has_system = False
@@ -522,3 +564,5 @@ def chat_sales_endpoint(request: ChatRequest):
     except Exception as e:
         print(f"Error in chat: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+

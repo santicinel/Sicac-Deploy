@@ -51,12 +51,39 @@ def find_relevant_products(query: str, limit: int = 5):
 
 
 # Initialize LLM
-api_key = os.getenv("GPT_API_KEY")
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.3,
-    api_key=api_key
+api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+llm = (
+    ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0.3,
+        api_key=api_key
+    )
+    if api_key
+    else None
 )
+
+
+def build_fallback_response(relevant_products: List[dict]) -> str:
+    intro = (
+        "La IA avanzada esta en modo demo porque falta configurar "
+        "GPT_API_KEY/OPENAI_API_KEY en el servicio de IA."
+    )
+    if not relevant_products:
+        return (
+            f"{intro} No encontre productos claramente relacionados en el catalogo local. "
+            "Si queres, contame modelo, familia y falla para orientarte mejor."
+        )
+
+    lines = []
+    for p in relevant_products[:3]:
+        lines.append(
+            f"- {p.get('Nombre', 'Producto')} (SKU: {p.get('ID', 'N/D')}) | Precio: ${p.get('Precio (ARS)', 'Consultar')}"
+        )
+    return (
+        f"{intro}\n\nProductos que podrian servirte como referencia:\n"
+        + "\n".join(lines)
+        + "\n\nPara respuestas conversacionales completas, agrega una API key y reinicia el servicio ai."
+    )
 
 class QuestionRequest(BaseModel):
     messages: list
@@ -79,65 +106,28 @@ def chat_endpoint(request: QuestionRequest):
             for p in relevant_products:
                 price = f"${p.get('Precio (ARS)', 'Consultar')}"
                 context_str += f"- {p.get('Nombre')} (SKU: {p.get('ID')}) - Precio: {price}\n  Categoría: {p.get('familia')} > {p.get('subfamilia')}\n  Detalles: {p.get('Texto_RAG', '')[:200]}...\n"
-        
-        # 3. Construct System Prompt
-        system_prompt = f"""Sos el asistente virtual oficial de CEA Insumos, empresa especializada en seguridad electrónica (cámaras, alarmas y sensores). 
-        Tu nombre es Eduardo. 
-        Tu rol es exclusivamente brindar SOPORTE TÉCNICO y GESTIÓN DE RECLAMOS relacionados con productos del catálogo. 
-        No realizás ventas ni recomendaciones comerciales proactivas. 
-        Recomienda todo el tiempo realizar reclamos o solicitudes tecnicas en la pagina web.
-        Reclamos hace referencias a problemas técnicos, defectos, disconformidad post-instalación o cualquier inconveniente relacionado con el producto.
-        Solicitud tecnica hace referencia a consultas sobre uso, compatibilidad, características técnicas o problemas frecuentes.
-        Analiza la consulta del usuario y recomienda cual de las dos opciones (reclamo o solicitud técnica) es la más adecuada para su caso, siempre que sea posible.
-        No digas que el usuario arregle cosas, solo decí que realice un reclamo o solicitud técnica.
-        Pueden decir que observe el estado del producto para agregarlo en la descripción del reclamo o solicitud técnica, pero no digas que lo arregle.
-        
-        Estilo de respuesta: 
-        - Tono profesional, claro y cordial. 
-        - Usá emojis de forma moderada (máximo 1 o 2 por respuesta). 
-        - Respuestas concretas, sin relleno ni opiniones personales. 
-        
-        Contexto disponible: {context_str} 
-        
-        Alcance funcional: 
-        - Resolver dudas técnicas sobre productos del catálogo. 
-        - Explicar características técnicas, compatibilidad, uso básico y problemas frecuentes. 
-        - Informar precios únicamente si están presentes en el contexto. 
-        - Guiar al usuario en el proceso de reclamo o soporte postventa. 
-        
-        Reglas estrictas: 
-        1. Usá ÚNICAMENTE información presente en el contexto para dar precios, modelos o especificaciones exactas. 
-        2. Si el dato no está en el contexto, aclaralo explícitamente. 
-        Ejemplo: "No dispongo del dato exacto en el catálogo actual." 
-        3. Nunca inventes precios, modelos, garantías ni políticas de la empresa. 
-        4. No hables de temas ajenos a seguridad electrónica o productos del catálogo. 
-        5. No hagas comparaciones comerciales ni sugerencias de compra. 
-        6. No des opiniones subjetivas (ej: “es mejor”, “te conviene”). 
-        7. No hables de temas que no estén relacionados con el catálogo. 
-        8. No hables de politica, musica, deportes, comida, etc. 
-        
-        Precios: 
-        - Si se consultan precios y están disponibles, informalos en Pesos Argentinos (ARS). 
-        - No estimes ni redondees valores. 
-        
-        Reclamos: 
-        - Ante fallas, defectos, problemas post-instalación o disconformidad: 
-        - Explicá brevemente los pasos generales de revisión. 
-        - Indicá que el reclamo formal debe realizarse por email. 
-        - Siempre cerrá con: "Para continuar con el reclamo, escribinos a consultas@ceainsumos.com 📧" 
-        
-        Comportamiento ante ambigüedad: 
-        - Si la consulta es poco clara, pedí UNA sola aclaración concreta. 
-        - No hagas múltiples preguntas seguidas. 
-        
-        Prohibiciones: 
-        - No divulgar información interna. 
-        - No mencionar políticas legales no confirmadas. 
-        - No afirmar tiempos de respuesta ni garantías si no figuran en el contexto. 
-        - No hablar de temas que no estén relacionados con el catálogo. 
-        - Si lo que te preguntan no tiene que ver con el catálogo, decí que no estas autorizado para responder y limitate a responder que no estas autorizado y nada más. 
-        
-        Tu objetivo es resolver el problema del usuario de forma clara, honesta y técnica, sin exceder tu rol.
+        if llm is None:
+            return {"response": build_fallback_response(relevant_products)}
+
+
+        system_prompt = f"""Sos el asistente virtual oficial de CEA Insumos, empresa de seguridad electronica.
+        Tu nombre es Eduardo.
+        Tu rol es brindar soporte tecnico y gestion de reclamos sobre productos del catalogo.
+        No hagas ventas proactivas ni recomendaciones comerciales.
+
+        Contexto disponible:
+        {context_str}
+
+        Reglas:
+        1. Usa solo datos del contexto para precios, modelos y especificaciones.
+        2. Si falta informacion, decilo explicitamente.
+        3. No inventes precios, garantias ni politicas.
+        4. Si la consulta no es del catalogo, responde que no estas autorizado.
+        5. Ante fallas, sugiere abrir reclamo o solicitud tecnica.
+
+        Estilo:
+        - Profesional, claro y breve.
+        - Una sola pregunta de aclaracion si hace falta.
         """
 
         # 4. Build Message History
@@ -157,3 +147,4 @@ def chat_endpoint(request: QuestionRequest):
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+

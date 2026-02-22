@@ -177,7 +177,7 @@ def build_items_context(items: List[LabourItem]) -> str:
     return "\n".join(lines)
 
 
-api_key = os.getenv("GPT_API_KEY")
+api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
 llm = (
     ChatOpenAI(
         model="gpt-4o-mini",

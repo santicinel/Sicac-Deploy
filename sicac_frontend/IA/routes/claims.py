@@ -38,11 +38,15 @@ class SummaryChatRequest(BaseModel):
 
 
 # --- LLM Setup ---
-api_key = os.getenv("GPT_API_KEY")
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.2,
-    api_key=api_key
+api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+llm = (
+    ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0.2,
+        api_key=api_key
+    )
+    if api_key
+    else None
 )
 
 SUMMARY_PROMPT = """
@@ -103,6 +107,54 @@ def build_filters_context(filters: Optional[SummaryFilters]) -> str:
     return ", ".join(parts) if parts else "Sin filtros adicionales."
 
 
+def build_local_summary(claims: List[ClaimItem], filters_context: str) -> str:
+    total = len(claims)
+    status_counts: Dict[str, int] = {}
+    type_counts: Dict[str, int] = {}
+    for item in claims:
+        status_counts[item.status] = status_counts.get(item.status, 0) + 1
+        type_counts[item.type] = type_counts.get(item.type, 0) + 1
+
+    lines = [
+        "Modo demo sin API key: resumen local sin LLM.",
+        f"Total de reclamos analizados: {total}.",
+        f"Filtros aplicados: {filters_context}",
+        f"Por estado: {status_counts or {'sin_datos': 0}}",
+        f"Por tipo: {type_counts or {'sin_datos': 0}}",
+    ]
+
+    for item in claims[:5]:
+        lines.append(
+            f"- {item.id} | {item.customer} | {item.status} | {item.type} | {item.createdAt} | {item.subject}"
+        )
+
+    lines.append(
+        "Para resumen narrativo avanzado, configura GPT_API_KEY/OPENAI_API_KEY y reinicia el servicio ai."
+    )
+    return "\n".join(lines)
+
+
+def build_local_chat_response(summary_context: str, messages: List[Dict[str, Any]]) -> str:
+    last_user = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            last_user = str(msg.get("content", "")).strip()
+            break
+
+    if not last_user:
+        return (
+            "Modo demo sin API key. Puedo devolver solo respuestas basicas sobre el resumen disponible. "
+            "Enviame una pregunta concreta."
+        )
+
+    preview = summary_context[:700]
+    return (
+        "Modo demo sin API key. No puedo razonar con LLM en esta instancia.\n\n"
+        f"Resumen disponible:\n{preview}\n\n"
+        "Si necesitas analisis conversacional completo, agrega una API key y reinicia el servicio ai."
+    )
+
+
 # --- Endpoints ---
 @router.post("/summary")
 def summary_endpoint(request: SummaryRequest):
@@ -112,6 +164,10 @@ def summary_endpoint(request: SummaryRequest):
 
         claims_context = build_claims_context(request.claims)
         filters_context = build_filters_context(request.filters)
+
+        if llm is None:
+            return {"summary": build_local_summary(request.claims, filters_context)}
+
         system_prompt = SUMMARY_PROMPT.format(
             claims_context=claims_context,
             filters_context=filters_context
@@ -136,6 +192,9 @@ def summary_chat_endpoint(request: SummaryChatRequest):
         claims_context = build_claims_context(request.claims or [])
         filters_context = build_filters_context(request.filters)
         summary_context = request.summary or "No hay resumen previo."
+
+        if llm is None:
+            return {"response": build_local_chat_response(summary_context, request.messages)}
 
         system_prompt = CHAT_PROMPT.format(
             summary_context=summary_context,

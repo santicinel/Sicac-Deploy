@@ -316,7 +316,7 @@ const formatPrice = (price: number) => {
     <div class="p-6 space-y-8">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-                <h1 class="text-3xl font-bold tracking-tight">Recomendación IA (Configuración)</h1>
+                <h1 class="text-3xl font-bold tracking-tight">Recomendación IA</h1>
                 <p class="text-muted-foreground">Seleccioná las características deseadas para cada familia de productos.</p>
             </div>
             <router-link to="/budget" class="group relative inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90">
