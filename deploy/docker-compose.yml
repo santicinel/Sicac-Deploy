@@ -48,6 +48,14 @@ services:
       FRONTEND_URLS: ${FRONTEND_URLS}
       CACHE_STORE: file
       QUEUE_CONNECTION: sync
+      MAIL_MAILER: ${MAIL_MAILER:-log}
+      MAIL_SCHEME: ${MAIL_SCHEME:-}
+      MAIL_HOST: ${MAIL_HOST:-127.0.0.1}
+      MAIL_PORT: ${MAIL_PORT:-2525}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-hello@example.com}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-SICAC}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA}
       SEED_MARKER_PATH: /var/lib/sicac/.seeded
     volumes:

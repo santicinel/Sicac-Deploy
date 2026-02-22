@@ -106,6 +106,13 @@ Configurar en `deploy/.env` al menos:
 - `CADDY_EMAIL=tuemail@algo.com`
 - `APP_KEY=...` (ver paso siguiente)
 - `GPT_API_KEY` o `OPENAI_API_KEY` (opcional, si queres IA LLM completa)
+- `MAIL_MAILER=smtp`
+- `MAIL_HOST=...`
+- `MAIL_PORT=...`
+- `MAIL_USERNAME=...`
+- `MAIL_PASSWORD=...`
+- `MAIL_FROM_ADDRESS=...`
+- `MAIL_FROM_NAME=...`
 
 4. Generar `APP_KEY` real en el VPS:
 
@@ -126,6 +133,24 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs -f
+```
+
+## Notificaciones por email (solicitudes/reclamos)
+
+Si cambias estados y no salen emails, normalmente es configuracion SMTP faltante.
+
+Verificacion rapida en VPS:
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T backend php -r "require 'vendor/autoload.php'; \$app=require 'bootstrap/app.php'; \$kernel=\$app->make(Illuminate\\Contracts\\Console\\Kernel::class); \$kernel->bootstrap(); echo 'MAIL_DEFAULT=' . config('mail.default') . PHP_EOL;"
+```
+
+Debe devolver `MAIL_DEFAULT=smtp`.
+
+Si no, revisar `deploy/.env` y volver a recrear backend:
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build --force-recreate backend
 ```
 
 ## Datos demo iniciales

@@ -807,14 +807,9 @@ class TechnicianRequestController extends Controller
             }
         };
 
-        // En testing enviamos inline para mantener pruebas deterministas.
-        if (app()->environment('testing')) {
-            $sendMailTask();
-            return;
-        }
-
-        // En runtime se ejecuta tras responder, evitando bloquear la UX.
-        dispatch($sendMailTask)->afterResponse();
+        // En este proyecto de deploy simple enviamos en linea para no depender
+        // de workers/colas y evitar fallos silenciosos de notificacion.
+        $sendMailTask();
     }
 
     private function normalizeDateString(mixed $value): ?string
