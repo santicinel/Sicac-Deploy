@@ -1,0 +1,68 @@
+services:
+  proxy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    depends_on:
+      - frontend
+      - backend
+      - ai
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  frontend:
+    build:
+      context: ../sicac_frontend
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../sicac_backend
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: https://${DOMAIN}
+      APP_KEY: ${APP_KEY}
+      LOG_CHANNEL: stack
+      LOG_LEVEL: info
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /var/lib/sicac/database.sqlite
+      SESSION_DRIVER: database
+      SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE}
+      SESSION_SAME_SITE: ${SESSION_SAME_SITE}
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      FRONTEND_URLS: ${FRONTEND_URLS}
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA}
+      SEED_MARKER_PATH: /var/lib/sicac/.seeded
+    volumes:
+      - backend_data:/var/lib/sicac
+      - backend_storage:/var/www/html/storage
+      - ../sicac_frontend/IA/kb/catalogo_sielse_normalizado.json:/var/www/html/database/data/catalogo_sielse_normalizado.json:ro
+
+  ai:
+    build:
+      context: ../sicac_frontend/IA
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      AI_PORT: 8002
+      GPT_API_KEY: ${GPT_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+volumes:
+  caddy_data:
+  caddy_config:
+  backend_data:
+  backend_storage:

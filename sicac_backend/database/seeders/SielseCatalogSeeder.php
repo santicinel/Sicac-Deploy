@@ -205,10 +205,37 @@ class SielseCatalogSeeder extends Seeder
             return $sheet->toArray(null, true, true, false);
         }
 
+        $mountedJsonPath = database_path('data/catalogo_sielse_normalizado.json');
+        if (is_file($mountedJsonPath)) {
+            $raw = file_get_contents($mountedJsonPath);
+            $records = json_decode($raw ?: '[]', true);
+
+            if (!is_array($records) || count($records) === 0) {
+                return [];
+            }
+
+            $headers = array_keys((array) $records[0]);
+            $rows = [$headers];
+
+            foreach ($records as $record) {
+                if (!is_array($record)) {
+                    continue;
+                }
+
+                $row = [];
+                foreach ($headers as $header) {
+                    $row[] = $record[$header] ?? null;
+                }
+                $rows[] = $row;
+            }
+
+            return $rows;
+        }
+
         $jsonPath = base_path('../sicac_frontend/IA/kb/catalogo_sielse_normalizado.json');
         if (!is_file($jsonPath)) {
             throw new \RuntimeException(
-                "Catalog source not found. Expected '{$excelPath}' or '{$jsonPath}'."
+                "Catalog source not found. Expected '{$excelPath}', '{$mountedJsonPath}' or '{$jsonPath}'."
             );
         }
 

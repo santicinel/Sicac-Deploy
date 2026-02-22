@@ -2,38 +2,40 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::
 
 const normalizeUrl = (url: string) => url.replace(/\/+$/, "");
 
-const resolveDevHost = () => {
-    if (typeof window === "undefined") {
-        return "localhost";
+const hasWindow = typeof window !== "undefined";
+const currentProtocol = hasWindow ? window.location.protocol : "http:";
+const currentHost = hasWindow
+    ? window.location.hostname === "0.0.0.0"
+        ? "localhost"
+        : window.location.hostname
+    : "localhost";
+const currentOrigin = hasWindow ? normalizeUrl(window.location.origin) : "http://localhost";
+const devBase = `${currentProtocol}//${currentHost}`;
+
+const resolveUrl = (envValue: string | undefined, fallbackUrl: string) => {
+    const raw = envValue?.trim() ? envValue.trim() : fallbackUrl;
+
+    if (raw.startsWith("/")) {
+        return normalizeUrl(`${currentOrigin}${raw}`);
     }
-
-    const host = window.location.hostname;
-    return host === "0.0.0.0" ? "localhost" : host;
-};
-
-const devHost = resolveDevHost();
-const devProtocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-
-const resolveLoopbackAwareUrl = (envValue: string | undefined, fallbackPort: number) => {
-    const fallback = `${devProtocol}//${devHost}:${fallbackPort}`;
-    const raw = envValue?.trim() ? envValue : fallback;
 
     try {
         const parsed = new URL(raw);
-        if (typeof window !== "undefined") {
-            const currentHost = resolveDevHost();
-            if (LOOPBACK_HOSTS.has(parsed.hostname) && LOOPBACK_HOSTS.has(currentHost)) {
-                parsed.hostname = currentHost;
-            }
+        if (LOOPBACK_HOSTS.has(parsed.hostname) && LOOPBACK_HOSTS.has(currentHost)) {
+            parsed.hostname = currentHost;
         }
         return normalizeUrl(parsed.toString());
     } catch {
-        return normalizeUrl(fallback);
+        return normalizeUrl(fallbackUrl);
     }
 };
 
+const defaultAppUrl = import.meta.env.PROD ? currentOrigin : `${devBase}:5173`;
+const defaultApiUrl = import.meta.env.PROD ? currentOrigin : `${devBase}:8001`;
+const defaultAiUrl = import.meta.env.PROD ? `${currentOrigin}/ai` : `${devBase}:8002`;
+
 export const config_app = {
-    url: resolveLoopbackAwareUrl(import.meta.env.VITE_APP_URL, 5173),
-    api_url: resolveLoopbackAwareUrl(import.meta.env.VITE_API_URL, 8001),
-    ai_url: resolveLoopbackAwareUrl(import.meta.env.VITE_AI_URL, 8002),
+    url: resolveUrl(import.meta.env.VITE_APP_URL, defaultAppUrl),
+    api_url: resolveUrl(import.meta.env.VITE_API_URL, defaultApiUrl),
+    ai_url: resolveUrl(import.meta.env.VITE_AI_URL, defaultAiUrl),
 };
