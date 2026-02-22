@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Http\Traits\CanLoadRelationship;
+use App\Mail\TechnicianRequestStatusNotificationMail;
 use App\Models\Claim;
 use App\Models\TechnicianRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class ClaimController extends Controller
 {
@@ -242,7 +244,7 @@ class ClaimController extends Controller
             $claim->update($validatedData);
 
             if (isset($validatedData['status'])) {
-                $this->syncLinkedTechnicianRequestsStatus($claim, $validatedData['status']);
+                $this->syncLinkedTechnicianRequestsStatus($claim, $validatedData['status'], $user->role);
             }
 
             Log::info('Claim.update: ✅ Reclamo actualizado exitosamente', [
@@ -291,7 +293,7 @@ class ClaimController extends Controller
             ]);
 
             $claim->setAnswer($validatedData['answer'] ?? null);
-            $this->syncLinkedTechnicianRequestsStatus($claim);
+            $this->syncLinkedTechnicianRequestsStatus($claim, null, $user->role);
 
             Log::info('Claim.answer: ✅ Reclamo respondido exitosamente', [
                 'user_id' => $userId,
@@ -362,7 +364,11 @@ class ClaimController extends Controller
         }
     }
 
-    private function syncLinkedTechnicianRequestsStatus(Claim $claim, ?string $forcedClaimStatus = null): void
+    private function syncLinkedTechnicianRequestsStatus(
+        Claim $claim,
+        ?string $forcedClaimStatus = null,
+        ?string $updatedByRole = null
+    ): void
     {
         $claimStatus = $forcedClaimStatus ?? $claim->status;
         $requestStatus = match ($claimStatus) {
@@ -371,7 +377,115 @@ class ClaimController extends Controller
             default => TechnicianRequest::STATUS_PENDING,
         };
 
-        TechnicianRequest::where('claim_id', $claim->id)
-            ->update(['status' => $requestStatus]);
+        $linkedRequests = TechnicianRequest::where('claim_id', $claim->id)->get();
+
+        foreach ($linkedRequests as $technicianRequest) {
+            $oldStatus = (string) $technicianRequest->status;
+            if ($oldStatus === $requestStatus) {
+                continue;
+            }
+
+            $technicianRequest->status = $requestStatus;
+            $technicianRequest->save();
+
+            $this->sendLinkedRequestStatusNotification(
+                $technicianRequest,
+                $oldStatus,
+                $updatedByRole
+            );
+        }
+    }
+
+    private function sendLinkedRequestStatusNotification(
+        TechnicianRequest $technicianRequest,
+        string $oldStatus,
+        ?string $updatedByRole
+    ): void {
+        $newStatus = (string) $technicianRequest->status;
+        if ($oldStatus === $newStatus) {
+            return;
+        }
+
+        $technicianRequest->loadMissing('requestingUser');
+        $email = trim((string) ($technicianRequest->requestingUser?->email ?? ''));
+        if ($email === '') {
+            Log::warning('Claim.sync.notification: usuario sin email, se omite aviso', [
+                'technician_request_id' => $technicianRequest->id,
+                'requesting_user_id' => $technicianRequest->requesting_user_id,
+            ]);
+            return;
+        }
+
+        $scheduledVisitDate = $this->normalizeDateString($technicianRequest->scheduled_visit_date);
+        $statusLabel = $this->requestStatusLabel($newStatus);
+        $typeLabel = $this->requestTypeLabel((string) $technicianRequest->type);
+        $updatedByLabel = $this->updatedByLabel($updatedByRole);
+
+        try {
+            Mail::to($email)->send(new TechnicianRequestStatusNotificationMail(
+                technicianRequest: $technicianRequest,
+                statusLabel: $statusLabel,
+                typeLabel: $typeLabel,
+                scheduledVisitDate: $scheduledVisitDate,
+                updatedByLabel: $updatedByLabel
+            ));
+
+            Log::info('Claim.sync.notification: aviso enviado al cliente', [
+                'technician_request_id' => $technicianRequest->id,
+                'claim_id' => $technicianRequest->claim_id,
+                'email' => $email,
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus,
+            ]);
+        } catch (\Throwable $exception) {
+            Log::error('Claim.sync.notification: error al enviar aviso', [
+                'technician_request_id' => $technicianRequest->id,
+                'claim_id' => $technicianRequest->claim_id,
+                'email' => $email,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function normalizeDateString(mixed $value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($value)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function requestStatusLabel(string $status): string
+    {
+        return match ($status) {
+            TechnicianRequest::STATUS_PENDING => 'Pendiente',
+            TechnicianRequest::STATUS_ASSIGNED => 'Asignado',
+            TechnicianRequest::STATUS_COMPLETED => 'Completado',
+            TechnicianRequest::STATUS_CANCELLED => 'Cancelado',
+            default => ucfirst($status),
+        };
+    }
+
+    private function requestTypeLabel(string $type): string
+    {
+        return match ($type) {
+            TechnicianRequest::TYPE_CLAIM => 'reclamo',
+            TechnicianRequest::TYPE_TECHNICAL_SERVICE => 'solicitud tecnica',
+            default => 'solicitud',
+        };
+    }
+
+    private function updatedByLabel(?string $role): string
+    {
+        return match ($role) {
+            'admin' => 'administracion',
+            'technician' => 'tecnico',
+            default => 'equipo de soporte',
+        };
     }
 }
