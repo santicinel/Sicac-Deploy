@@ -2,9 +2,9 @@ import os
 from typing import List, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from pypdf import PdfReader
+from routes.llm_utils import build_llm_clients, invoke_with_fallback
 
 router = APIRouter()
 
@@ -81,16 +81,7 @@ def find_relevant_manual_chunks(query: str, limit: int = 3):
     return [m[1] for m in matches[:limit]]
 
 
-api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
-llm = (
-    ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.3,
-        api_key=api_key
-    )
-    if api_key
-    else None
-)
+llm_clients = build_llm_clients(temperature=0.3)
 
 
 def build_fallback_response(user_query: str, relevant_manuals: List[Dict[str, str]]) -> str:
@@ -136,7 +127,7 @@ def technician_chat_endpoint(request: TechnicianChatRequest):
             for item in relevant_manuals:
                 manuals_context += f"[{item['source']}]\n{item['content'][:1200]}\n\n"
 
-        if llm is None:
+        if not llm_clients:
             return {"response": build_fallback_response(user_query, relevant_manuals)}
 
         system_prompt = (
@@ -160,8 +151,8 @@ def technician_chat_endpoint(request: TechnicianChatRequest):
             elif msg.get("role") == "assistant":
                 lc_messages.append(AIMessage(content=msg.get("content", "")))
 
-        response = llm.invoke(lc_messages)
-        return {"response": response.content}
+        response, _ = invoke_with_fallback(llm_clients, lc_messages)
+        return {"response": str(response.content)}
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

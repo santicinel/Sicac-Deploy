@@ -431,9 +431,21 @@ const assignSelf = async () => {
     await supportRequestsService.assignToMyself(selected.value.id);
     toast.success("Solicitud tomada correctamente.");
     selected.value = null;
-    await loadData();
+    void loadData();
   } catch (error) {
     console.error(error);
+    const apiMessage = extractApiMessage(error).toLowerCase();
+    const alreadyAssigned =
+      apiMessage.includes("ya tiene technician asignado") ||
+      apiMessage.includes("solicitud ya tiene technician asignado");
+
+    if (alreadyAssigned) {
+      toast.info("La solicitud ya estaba asignada. Se actualizo la vista.");
+      selected.value = null;
+      void loadData();
+      return;
+    }
+
     toast.error("No se pudo tomar la solicitud.");
   } finally {
     saving.value = false;
@@ -509,7 +521,7 @@ const completeTask = async () => {
     }
     toast.success("Tarea completada.");
     selected.value = null;
-    await loadData();
+    void loadData();
   } catch (error) {
     console.error(error);
     toast.error(extractApiMessage(error) || "No se pudo completar la tarea.");
@@ -549,7 +561,7 @@ const updateStatus = async (status: ServiceRequestStatus) => {
     selected.value = response.data.data;
     toast.success("Estado actualizado.");
     selected.value = null;
-    await loadData();
+    void loadData();
   } catch (error) {
     console.error(error);
     toast.error(extractApiMessage(error) || "No se pudo actualizar el estado.");
@@ -583,7 +595,7 @@ const saveVisitSchedule = async () => {
     syncScheduledVisitRange(scheduledVisitDate.value);
     visitCalendarOpen.value = false;
     toast.success("Fecha de visita guardada.");
-    await loadData();
+    void loadData();
   } catch (error) {
     console.error(error);
     toast.error(extractApiMessage(error) || "No se pudo guardar la fecha de visita.");

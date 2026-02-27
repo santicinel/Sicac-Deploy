@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Traits\CanLoadRelationship;
+use App\Jobs\SendTechnicianRequestStatusNotificationJob;
 use App\Mail\TechnicianRequestStatusNotificationMail;
 use App\Models\Claim;
 use App\Models\TechnicianRequest;
@@ -17,6 +18,8 @@ class ClaimController extends Controller
     use CanLoadRelationship;
 
     protected array $relations = ['requestingUser'];
+
+    private bool $notificationWorkerSpawned = false;
 
     /**
      * Obtener todos los reclamos (solo admins) (READ)
@@ -421,30 +424,115 @@ class ClaimController extends Controller
         $typeLabel = $this->requestTypeLabel((string) $technicianRequest->type);
         $updatedByLabel = $this->updatedByLabel($updatedByRole);
 
-        try {
-            Mail::to($email)->send(new TechnicianRequestStatusNotificationMail(
-                technicianRequest: $technicianRequest,
-                statusLabel: $statusLabel,
-                typeLabel: $typeLabel,
-                scheduledVisitDate: $scheduledVisitDate,
-                updatedByLabel: $updatedByLabel
-            ));
+        if (app()->environment('testing')) {
+            try {
+                Mail::to($email)->send(new TechnicianRequestStatusNotificationMail(
+                    technicianRequest: $technicianRequest,
+                    statusLabel: $statusLabel,
+                    typeLabel: $typeLabel,
+                    scheduledVisitDate: $scheduledVisitDate,
+                    updatedByLabel: $updatedByLabel
+                ));
 
-            Log::info('Claim.sync.notification: aviso enviado al cliente', [
+                Log::info('Claim.sync.notification: aviso enviado al cliente', [
+                    'technician_request_id' => $technicianRequest->id,
+                    'claim_id' => $technicianRequest->claim_id,
+                    'email' => $email,
+                    'old_status' => $oldStatus,
+                    'new_status' => $newStatus,
+                ]);
+            } catch (\Throwable $exception) {
+                Log::error('Claim.sync.notification: error al enviar aviso', [
+                    'technician_request_id' => $technicianRequest->id,
+                    'claim_id' => $technicianRequest->claim_id,
+                    'email' => $email,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+
+            return;
+        }
+
+        $this->enqueueStatusNotification(
+            technicianRequestId: (int) $technicianRequest->id,
+            email: $email,
+            statusLabel: $statusLabel,
+            typeLabel: $typeLabel,
+            scheduledVisitDate: $scheduledVisitDate,
+            updatedByLabel: $updatedByLabel,
+            logContext: 'Claim.sync.notification',
+            logData: [
                 'technician_request_id' => $technicianRequest->id,
                 'claim_id' => $technicianRequest->claim_id,
-                'email' => $email,
                 'old_status' => $oldStatus,
                 'new_status' => $newStatus,
-            ]);
-        } catch (\Throwable $exception) {
-            Log::error('Claim.sync.notification: error al enviar aviso', [
-                'technician_request_id' => $technicianRequest->id,
-                'claim_id' => $technicianRequest->claim_id,
-                'email' => $email,
-                'error' => $exception->getMessage(),
-            ]);
+            ],
+        );
+    }
+
+    private function enqueueStatusNotification(
+        int $technicianRequestId,
+        string $email,
+        string $statusLabel,
+        string $typeLabel,
+        ?string $scheduledVisitDate,
+        string $updatedByLabel,
+        string $logContext,
+        array $logData = []
+    ): void {
+        SendTechnicianRequestStatusNotificationJob::dispatch(
+            technicianRequestId: $technicianRequestId,
+            email: $email,
+            statusLabel: $statusLabel,
+            typeLabel: $typeLabel,
+            scheduledVisitDate: $scheduledVisitDate,
+            updatedByLabel: $updatedByLabel,
+            logContext: $logContext,
+            logData: $logData,
+        );
+
+        $this->spawnNotificationWorkerIfNeeded();
+
+        Log::debug("{$logContext}: aviso encolado en database/mail-notifications", $logData + [
+            'technician_request_id' => $technicianRequestId,
+            'email' => $email,
+        ]);
+    }
+
+    private function spawnNotificationWorkerIfNeeded(): void
+    {
+        if ($this->notificationWorkerSpawned || app()->environment('testing')) {
+            return;
         }
+
+        $this->notificationWorkerSpawned = true;
+
+        $phpBinary = escapeshellarg(PHP_BINARY ?: 'php');
+        $artisanPath = escapeshellarg(base_path('artisan'));
+        $workerCommand = "{$phpBinary} {$artisanPath} queue:work database --queue=mail-notifications --stop-when-empty --tries=1 --timeout=120 --no-interaction";
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $processHandle = @popen("cmd /C start /B \"\" {$workerCommand} >NUL 2>&1", 'r');
+            if ($processHandle === false) {
+                Log::warning('Claim.sync.notification: no se pudo iniciar worker de cola', [
+                    'queue' => 'mail-notifications',
+                ]);
+                return;
+            }
+
+            @pclose($processHandle);
+            Log::debug('Claim.sync.notification: worker de cola lanzado en background', [
+                'queue' => 'mail-notifications',
+                'connection' => 'database',
+            ]);
+            return;
+        }
+
+        @exec("{$workerCommand} > /dev/null 2>&1 &");
+        Log::debug('Claim.sync.notification: worker de cola lanzado en background', [
+            'queue' => 'mail-notifications',
+            'connection' => 'database',
+        ]);
     }
 
     private function normalizeDateString(mixed $value): ?string

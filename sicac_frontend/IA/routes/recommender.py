@@ -3,9 +3,9 @@ import json
 from typing import List, Optional, Dict, Any, Tuple
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from pypdf import PdfReader
+from routes.llm_utils import build_llm_clients, invoke_with_fallback
 
 router = APIRouter()
 
@@ -359,16 +359,7 @@ def select_manual_chunks(keys: List[str], keywords: List[str], limit: int = 6) -
         fallback.extend(MANUAL_CHUNKS.get(key, [])[:2])
     return fallback[:limit]
 # --- 4. LLM Setup ---
-api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
-llm = (
-    ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.3, # Slightly higher for creative sales pitch
-        api_key=api_key
-    )
-    if api_key
-    else None
-)
+llm_clients = build_llm_clients(temperature=0.3)
 
 
 def build_local_recommendation_response(
@@ -398,7 +389,7 @@ def build_local_recommendation_response(
     )
 
 SYSTEM_PROMPT_TEMPLATE = """
-Sos Filippo, el vendedor experto en Inteligencia Artificial de CEA Insumos.
+Sos Anibal, el vendedor experto en Inteligencia Artificial de CEA Insumos.
 Tu objetivo es analizar la solicitud del cliente y los productos encontrados para recomendar la mejor opcion.
 
 Perfil:
@@ -423,7 +414,8 @@ Instrucciones:
    - Explica POR QUE son buenas opciones (costo-beneficio, caracteristicas clave).
    - Si no hay productos exactos, ofrece la alternativa mas cercana o invita a consultar.
    - Menciona los precios en Pesos Argentinos (ARS) si estan disponibles.
-   - Cierra con una pregunta o invitacion a comprar ("Te gustaria agregarlo al carrito?", "Tenes alguna duda sobre la instalacion?").
+   - Cierra con una pregunta o invitacion a comprar ("Si quieres agregar algun producto al carrito presiona el "+" de al lado del producto que está apareciendo debajo", "Tenes alguna duda sobre la instalacion?").
+   - No hables de comprar, habla solamente de agregar al carrito.
 
 IMPORTANTE:
 - Solo recomienda lo que este en la lista. Si la lista esta vacia, pedi disculpas y solicita mas detalles o que contacten a un humano.
@@ -498,7 +490,7 @@ def run_recommendation(requests: List[RecommendationRequest], user_name: str = "
             user_request_description=user_req_desc,
             manuals_context=manuals_context
         )
-        if llm is None:
+        if not llm_clients:
             return {
                 "response": build_local_recommendation_response(all_results, user_name, user_req_desc),
                 "products": all_results,
@@ -510,10 +502,10 @@ def run_recommendation(requests: List[RecommendationRequest], user_name: str = "
             HumanMessage(content=f"Hola, soy {user_name}, ayudame a elegir según mis requerimientos.")
         ]
         
-        response = llm.invoke(messages)
+        response, _ = invoke_with_fallback(llm_clients, messages)
         
         return {
-            "response": response.content,
+            "response": str(response.content),
             "products": all_results, # Return raw products too in case frontend wants to show cards
             "system_prompt_used": formatted_system_prompt
         }
@@ -530,7 +522,7 @@ def chat_sales_endpoint(request: ChatRequest):
         # (or we need to re-inject a generic one if missing, but maintaining context is harder).
         # Strategy: The frontend should append the previous Assistant response to the history.
         # But we need a System Prompt to define the Persona "Gustavo".
-        if llm is None:
+        if not llm_clients:
             return {
                 "response": (
                     "Asistente comercial en modo demo: falta GPT_API_KEY/OPENAI_API_KEY. "
@@ -558,11 +550,10 @@ def chat_sales_endpoint(request: ChatRequest):
             """
             lc_messages.insert(0, SystemMessage(content=fallback_prompt))
 
-        response = llm.invoke(lc_messages)
-        return {"response": response.content}
+        response, _ = invoke_with_fallback(llm_clients, lc_messages)
+        return {"response": str(response.content)}
 
     except Exception as e:
         print(f"Error in chat: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 

@@ -72,6 +72,8 @@ services:
       AI_PORT: 8002
       GPT_API_KEY: ${GPT_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GPT_MODEL: ${GPT_MODEL:-gpt-5.2}
+      GPT_MODEL_FALLBACKS: ${GPT_MODEL_FALLBACKS:-gpt-5,gpt-4.1,gpt-4o-mini}
 
 volumes:
   caddy_data:

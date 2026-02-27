@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendTechnicianRequestStatusNotificationJob;
 use App\Mail\TechnicianRequestStatusNotificationMail;
 use App\Models\TechnicianRequest;
 use App\Models\Technician;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 
 class TechnicianRequestController extends Controller
 {
+    private bool $notificationWorkerSpawned = false;
+
     /**
      * Obtener todas las solicitudes técnicas (solo admins) (READ)
      */
@@ -770,17 +773,7 @@ class TechnicianRequestController extends Controller
         $typeLabel = $this->typeLabel($technicianRequest->type);
         $updatedByLabel = $this->updatedByLabel($updatedByRole);
 
-        $sendMailTask = function () use (
-            $email,
-            $newScheduledVisitDate,
-            $statusChanged,
-            $visitDateChanged,
-            $newStatus,
-            $statusLabel,
-            $typeLabel,
-            $updatedByLabel,
-            $technicianRequest
-        ): void {
+        if (app()->environment('testing')) {
             try {
                 Mail::to($email)->send(new TechnicianRequestStatusNotificationMail(
                     technicianRequest: $technicianRequest,
@@ -805,11 +798,91 @@ class TechnicianRequestController extends Controller
                     'error' => $exception->getMessage(),
                 ]);
             }
-        };
 
-        // En este proyecto de deploy simple enviamos en linea para no depender
-        // de workers/colas y evitar fallos silenciosos de notificacion.
-        $sendMailTask();
+            return;
+        }
+
+        $this->enqueueStatusNotification(
+            technicianRequestId: (int) $technicianRequest->id,
+            email: $email,
+            statusLabel: $statusLabel,
+            typeLabel: $typeLabel,
+            scheduledVisitDate: $newScheduledVisitDate,
+            updatedByLabel: $updatedByLabel,
+            logContext: 'TechnicianRequest.notification',
+            logData: [
+                'technician_request_id' => $technicianRequest->id,
+                'status_changed' => $statusChanged,
+                'visit_date_changed' => $visitDateChanged,
+                'status' => $newStatus,
+                'scheduled_visit_date' => $newScheduledVisitDate,
+            ],
+        );
+    }
+
+    private function enqueueStatusNotification(
+        int $technicianRequestId,
+        string $email,
+        string $statusLabel,
+        string $typeLabel,
+        ?string $scheduledVisitDate,
+        string $updatedByLabel,
+        string $logContext,
+        array $logData = []
+    ): void {
+        SendTechnicianRequestStatusNotificationJob::dispatch(
+            technicianRequestId: $technicianRequestId,
+            email: $email,
+            statusLabel: $statusLabel,
+            typeLabel: $typeLabel,
+            scheduledVisitDate: $scheduledVisitDate,
+            updatedByLabel: $updatedByLabel,
+            logContext: $logContext,
+            logData: $logData,
+        );
+
+        $this->spawnNotificationWorkerIfNeeded();
+
+        Log::debug("{$logContext}: aviso encolado en database/mail-notifications", $logData + [
+            'technician_request_id' => $technicianRequestId,
+            'email' => $email,
+        ]);
+    }
+
+    private function spawnNotificationWorkerIfNeeded(): void
+    {
+        if ($this->notificationWorkerSpawned || app()->environment('testing')) {
+            return;
+        }
+
+        $this->notificationWorkerSpawned = true;
+
+        $phpBinary = escapeshellarg(PHP_BINARY ?: 'php');
+        $artisanPath = escapeshellarg(base_path('artisan'));
+        $workerCommand = "{$phpBinary} {$artisanPath} queue:work database --queue=mail-notifications --stop-when-empty --tries=1 --timeout=120 --no-interaction";
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $processHandle = @popen("cmd /C start /B \"\" {$workerCommand} >NUL 2>&1", 'r');
+            if ($processHandle === false) {
+                Log::warning('TechnicianRequest.notification: no se pudo iniciar worker de cola', [
+                    'queue' => 'mail-notifications',
+                ]);
+                return;
+            }
+
+            @pclose($processHandle);
+            Log::debug('TechnicianRequest.notification: worker de cola lanzado en background', [
+                'queue' => 'mail-notifications',
+                'connection' => 'database',
+            ]);
+            return;
+        }
+
+        @exec("{$workerCommand} > /dev/null 2>&1 &");
+        Log::debug('TechnicianRequest.notification: worker de cola lanzado en background', [
+            'queue' => 'mail-notifications',
+            'connection' => 'database',
+        ]);
     }
 
     private function normalizeDateString(mixed $value): ?string

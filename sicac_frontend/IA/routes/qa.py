@@ -1,21 +1,23 @@
-import os
 import json
+import os
 from typing import List
+
 from fastapi import APIRouter, HTTPException
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
+from routes.llm_utils import build_llm_clients, invoke_with_fallback
 
 router = APIRouter()
 
-# Load Product Catalog
-# Adjust path: routes/../kb/catalogo.json -> ../kb/catalogo.json
-CATALOG_PATH = os.path.join(os.path.dirname(__file__), "..", "kb", "catalogo_sielse_normalizado.json")
+CATALOG_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "kb", "catalogo_sielse_normalizado.json"
+)
 PRODUCTS = []
 
 try:
-    with open(CATALOG_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    with open(CATALOG_PATH, "r", encoding="utf-8") as file_handle:
+        data = json.load(file_handle)
         if isinstance(data, list):
             PRODUCTS = data
         elif isinstance(data, dict):
@@ -23,128 +25,149 @@ try:
         else:
             PRODUCTS = []
         print(f"[INFO] Loaded {len(PRODUCTS)} products from catalog.")
-except Exception as e:
-        print(f"[ERROR] Error loading catalog: {e}")
+except Exception as exc:
+    print(f"[ERROR] Error loading catalog: {exc}")
 
-# Helper: Simple Search (Keywords)
+
 def find_relevant_products(query: str, limit: int = 5):
-    query = query.lower()
+    query_text = (query or "").lower()
     matches = []
-    
-    for p in PRODUCTS:
-        # Search in Name, ID, Family, Subfamily
-        text = f"{p.get('Nombre', '')} {p.get('ID', '')} {p.get('familia', '')} {p.get('subfamilia', '')}".lower()
-        
-        # Scoring: Count how many query words appear in text
+
+    for product in PRODUCTS:
+        text = (
+            f"{product.get('Nombre', '')} "
+            f"{product.get('ID', '')} "
+            f"{product.get('familia', '')} "
+            f"{product.get('subfamilia', '')}"
+        ).lower()
+
         score = 0
-        words = query.split()
-        for w in words:
-            if w in text:
+        for word in query_text.split():
+            if word in text:
                 score += 1
-        
+
         if score > 0:
-            matches.append((score, p))
-    
-    # Sort by score desc
-    matches.sort(key=lambda x: x[0], reverse=True)
-    return [m[1] for m in matches[:limit]]
+            matches.append((score, product))
+
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return [item[1] for item in matches[:limit]]
 
 
-# Initialize LLM
-api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
-llm = (
-    ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.3,
-        api_key=api_key
-    )
-    if api_key
-    else None
-)
+llm_clients = build_llm_clients(temperature=0.25)
 
 
 def build_fallback_response(relevant_products: List[dict]) -> str:
     intro = (
-        "La IA avanzada esta en modo demo porque falta configurar "
-        "GPT_API_KEY/OPENAI_API_KEY en el servicio de IA."
+        "Asistente en modo demo: falta configurar GPT_API_KEY/OPENAI_API_KEY."
     )
     if not relevant_products:
         return (
-            f"{intro} No encontre productos claramente relacionados en el catalogo local. "
-            "Si queres, contame modelo, familia y falla para orientarte mejor."
+            f"{intro}\n\n"
+            "Resumen rapido: no encontre productos claros en el catalogo.\n"
+            "Para avanzar necesito:\n"
+            "- Marca y modelo del equipo\n"
+            "- Sintoma principal y desde cuando ocurre"
         )
 
     lines = []
-    for p in relevant_products[:3]:
+    for product in relevant_products[:3]:
         lines.append(
-            f"- {p.get('Nombre', 'Producto')} (SKU: {p.get('ID', 'N/D')}) | Precio: ${p.get('Precio (ARS)', 'Consultar')}"
+            f"- {product.get('Nombre', 'Producto')} "
+            f"(SKU: {product.get('ID', 'N/D')}) "
+            f"| Precio: ${product.get('Precio (ARS)', 'Consultar')}"
         )
     return (
-        f"{intro}\n\nProductos que podrian servirte como referencia:\n"
+        f"{intro}\n\n"
+        "Resumen rapido: encontre productos relacionados.\n"
+        "Referencias utiles:\n"
         + "\n".join(lines)
-        + "\n\nPara respuestas conversacionales completas, agrega una API key y reinicia el servicio ai."
+        + "\n\nCuando quieras, te ayudo a armar el asunto y la descripcion del ticket."
     )
+
+
+SUPPORT_SYSTEM_PROMPT_TEMPLATE = """
+Sos Eduardo, asistente de CEA Insumos para Soporte y Reclamos.
+Tu trabajo es ayudar a cargar tickets sin abrumar.
+No vendas productos ni inventes politicas.
+
+Contexto del catalogo:
+{context_str}
+
+Reglas:
+1. Usa solo el contexto para modelos, precios y datos tecnicos.
+2. Si falta informacion, decilo con claridad y pedi solo lo minimo.
+3. Nunca pidas contrasenas, codigos 2FA ni datos bancarios.
+4. Si hay riesgo electrico, indica cortar energia y contactar tecnico.
+5. Si reporta falla/problema -> sugeri "Iniciar reclamo".
+6. Si pide ayuda, configuracion o visita sin falla confirmada -> sugeri "Solicitud tecnica".
+
+Formato visual obligatorio en cada respuesta:
+- "Resumen rapido:" una sola linea (max 18 palabras).
+- "Siguiente paso:" con 1 o 2 bullets cortos.
+- Si faltan datos: "Para avanzar necesito:" con maximo 2 preguntas.
+- Cuando ya alcance la info, agrega:
+  Tipo de caso:
+  Categoria sugerida:
+  Asunto sugerido:
+  Descripcion sugerida:
+  - Producto:
+  - Problema:
+  - Desde:
+  - Instalacion/Conexion:
+  - Ya probado:
+  - Necesito:
+
+Limites de estilo:
+- Maximo 110 palabras.
+- Evita parrafos largos; usa saltos de linea y bullets.
+- Nada de texto redundante.
+- Cierra con: "Cuando quieras, lo enviamos."
+"""
+
 
 class QuestionRequest(BaseModel):
     messages: list
 
+
 @router.post("/chat")
 def chat_endpoint(request: QuestionRequest):
     try:
-        # 1. Identify User Query
         user_query = ""
-        for msg in reversed(request.messages):
-            if msg['role'] == 'user':
-                user_query = msg['content']
+        for message in reversed(request.messages):
+            if message.get("role") == "user":
+                user_query = str(message.get("content", ""))
                 break
-        
-        # 2. Retrieve Context (RAG)
+
         relevant_products = find_relevant_products(user_query)
-        context_str = ""
+        context_str = "Sin productos relevantes del catalogo para esta consulta."
         if relevant_products:
-            context_str = "\nPRODUCTOS RELEVANTES ENCONTRADOS EN EL CATÁLOGO:\n"
-            for p in relevant_products:
-                price = f"${p.get('Precio (ARS)', 'Consultar')}"
-                context_str += f"- {p.get('Nombre')} (SKU: {p.get('ID')}) - Precio: {price}\n  Categoría: {p.get('familia')} > {p.get('subfamilia')}\n  Detalles: {p.get('Texto_RAG', '')[:200]}...\n"
-        if llm is None:
+            lines = []
+            for product in relevant_products:
+                price = f"${product.get('Precio (ARS)', 'Consultar')}"
+                lines.append(
+                    f"- {product.get('Nombre')} (SKU: {product.get('ID')}) | Precio: {price}\n"
+                    f"  Categoria: {product.get('familia')} > {product.get('subfamilia')}\n"
+                    f"  Detalle: {product.get('Texto_RAG', '')[:180]}..."
+                )
+            context_str = "\n".join(lines)
+
+        if not llm_clients:
             return {"response": build_fallback_response(relevant_products)}
 
-
-        system_prompt = f"""Sos el asistente virtual oficial de CEA Insumos, empresa de seguridad electronica.
-        Tu nombre es Eduardo.
-        Tu rol es brindar soporte tecnico y gestion de reclamos sobre productos del catalogo.
-        No hagas ventas proactivas ni recomendaciones comerciales.
-
-        Contexto disponible:
-        {context_str}
-
-        Reglas:
-        1. Usa solo datos del contexto para precios, modelos y especificaciones.
-        2. Si falta informacion, decilo explicitamente.
-        3. No inventes precios, garantias ni politicas.
-        4. Si la consulta no es del catalogo, responde que no estas autorizado.
-        5. Ante fallas, sugiere abrir reclamo o solicitud tecnica.
-
-        Estilo:
-        - Profesional, claro y breve.
-        - Una sola pregunta de aclaracion si hace falta.
-        """
-
-        # 4. Build Message History
+        system_prompt = SUPPORT_SYSTEM_PROMPT_TEMPLATE.format(context_str=context_str)
         lc_messages = [SystemMessage(content=system_prompt)]
-        
-        for msg in request.messages:
-            if msg['role'] == 'user':
-                lc_messages.append(HumanMessage(content=msg['content']))
-            elif msg['role'] == 'assistant':
-                lc_messages.append(AIMessage(content=msg['content']))
 
-        # 5. Invoke LLM
-        response = llm.invoke(lc_messages)
-        
-        return {"response": response.content}
+        for message in request.messages:
+            role = message.get("role")
+            content = str(message.get("content", ""))
+            if role == "user":
+                lc_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_messages.append(AIMessage(content=content))
 
-    except Exception as e:
-        print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        response, _ = invoke_with_fallback(llm_clients, lc_messages)
+        return {"response": str(response.content)}
 
+    except Exception as exc:
+        print(f"Error in qa chat: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))

@@ -5,9 +5,10 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 from pypdf import PdfReader
+
+from routes.llm_utils import build_llm_clients, invoke_with_fallback
 
 router = APIRouter(prefix="/labour")
 
@@ -177,16 +178,7 @@ def build_items_context(items: List[LabourItem]) -> str:
     return "\n".join(lines)
 
 
-api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
-llm = (
-    ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.1,
-        api_key=api_key,
-    )
-    if api_key
-    else None
-)
+llm_clients = build_llm_clients(temperature=0.1)
 
 
 @router.post("/estimate")
@@ -216,7 +208,7 @@ def estimate_labour(request: LabourEstimateRequest):
     if not manuals_context:
         manuals_context = "No se encontraron fragmentos directos en manuales para esta solicitud."
 
-    if llm is None:
+    if not llm_clients:
         fallback = heuristic_hours(request.items, user_text)
         return {
             "estimated_hours": fallback,
@@ -249,11 +241,12 @@ def estimate_labour(request: LabourEstimateRequest):
             "Genera la estimacion de horas totales."
         )
 
-        response = llm.invoke(
+        response, used_model = invoke_with_fallback(
+            llm_clients,
             [
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=human_prompt),
-            ]
+            ],
         )
         payload = extract_json_object(str(response.content))
         if payload is None:
@@ -277,7 +270,7 @@ def estimate_labour(request: LabourEstimateRequest):
             "summary": summary,
             "assumptions": assumptions[:5],
             "sources": sources,
-            "model_used": "gpt-4o-mini",
+            "model_used": used_model,
         }
 
     except Exception as exc:

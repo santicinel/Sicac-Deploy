@@ -1,13 +1,14 @@
-import os
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, HTTPException
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
+from routes.llm_utils import build_llm_clients, invoke_with_fallback
 
 router = APIRouter()
 
-# --- Models ---
+
 class ClaimItem(BaseModel):
     id: str
     type: str
@@ -37,27 +38,34 @@ class SummaryChatRequest(BaseModel):
     filters: Optional[SummaryFilters] = None
 
 
-# --- LLM Setup ---
-api_key = (os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
-llm = (
-    ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.2,
-        api_key=api_key
-    )
-    if api_key
-    else None
-)
+llm_clients = build_llm_clients(temperature=0.2)
 
 SUMMARY_PROMPT = """
-Sos el coordinador de reclamos de CEA Insumos, te llamas Adriel.
-Tu tarea es resumir y detectar los principales quilombos recientes.
+Sos Adriel, coordinador de reclamos de CEA Insumos.
+Tu tarea es generar un resumen ejecutivo claro, facil de escanear y apto para presentacion.
 
-Responde en espanol con este formato:
-Inicio: Comentar cuantos reclamos coincidentes hay y una línea de cada uno modo resumen.
-1) Resumen general (1 a 3 bullets, claro y concreto)(evitar usar infomación usada en "Inicio").
-2) Detalle por reclamo (1 bullet por reclamo con id, cliente, estado, tipo, fecha, asunto y detalle).
-3) Riesgos o urgencias (si aplica).
+Formato visual exacto:
+Panorama general:
+- Total filtrado.
+- Estado predominante.
+- Tipo predominante.
+- Tendencia corta (1 linea).
+
+Prioridades de hoy:
+- Maximo 5 bullets.
+- Formato: [ID] Cliente - motivo - accion sugerida.
+
+Riesgos y alertas:
+- Si no hay riesgos, escribir: "- Sin riesgos criticos detectados."
+
+Detalle rapido:
+- Maximo 8 bullets.
+- Formato: [ID] [estado] [tipo] [fecha] | Asunto: ... | Nota: ...
+
+Reglas de estilo:
+- Bullets cortos (max 16 palabras por bullet).
+- Evita bloques largos de texto.
+- No inventes informacion.
 
 Filtros aplicados: {filters_context}
 Reclamos para analizar:
@@ -65,10 +73,24 @@ Reclamos para analizar:
 """
 
 CHAT_PROMPT = """
-Sos el coordinador de reclamos de CEA Insumos.
-Responde preguntas sobre el resumen y los reclamos listados.
-Si te preguntan por reclamos que no estan en la lista, aclara que no hay datos.
-Mantene respuestas claras y utiles, en espanol.
+Sos Adriel, coordinador de reclamos de CEA Insumos.
+Responde preguntas solo con base en el resumen y reclamos disponibles.
+Si preguntan por algo fuera de la lista, aclara que no hay datos cargados.
+
+Formato obligatorio:
+Respuesta corta:
+- 1 a 3 bullets claros.
+
+Accion sugerida:
+- 1 o 2 bullets accionables.
+
+IDs citados:
+- Lista de IDs usados en tu respuesta (o "Ninguno").
+
+Reglas:
+- Maximo 90 palabras.
+- No texto en bloque.
+- No inventes datos.
 
 Resumen actual:
 {summary_context}
@@ -82,6 +104,7 @@ Reclamos disponibles:
 def build_claims_context(claims: List[ClaimItem]) -> str:
     if not claims:
         return "No hay reclamos para analizar."
+
     lines = []
     for item in claims:
         lines.append(
@@ -95,6 +118,7 @@ def build_claims_context(claims: List[ClaimItem]) -> str:
 def build_filters_context(filters: Optional[SummaryFilters]) -> str:
     if not filters:
         return "Sin filtros adicionales."
+
     parts = []
     if filters.date_from:
         parts.append(f"desde {filters.date_from}")
@@ -116,46 +140,61 @@ def build_local_summary(claims: List[ClaimItem], filters_context: str) -> str:
         type_counts[item.type] = type_counts.get(item.type, 0) + 1
 
     lines = [
-        "Modo demo sin API key: resumen local sin LLM.",
-        f"Total de reclamos analizados: {total}.",
-        f"Filtros aplicados: {filters_context}",
-        f"Por estado: {status_counts or {'sin_datos': 0}}",
-        f"Por tipo: {type_counts or {'sin_datos': 0}}",
+        "Panorama general:",
+        f"- Total de reclamos: {total}",
+        f"- Filtros: {filters_context}",
+        f"- Por estado: {status_counts or {'sin_datos': 0}}",
+        f"- Por tipo: {type_counts or {'sin_datos': 0}}",
+        "",
+        "Prioridades de hoy:",
     ]
 
     for item in claims[:5]:
         lines.append(
-            f"- {item.id} | {item.customer} | {item.status} | {item.type} | {item.createdAt} | {item.subject}"
+            f"- [{item.id}] {item.customer} - {item.subject} - revisar estado {item.status}"
         )
 
-    lines.append(
-        "Para resumen narrativo avanzado, configura GPT_API_KEY/OPENAI_API_KEY y reinicia el servicio ai."
+    lines.extend(
+        [
+            "",
+            "Riesgos y alertas:",
+            "- Sin evaluacion avanzada (modo demo sin API key).",
+        ]
     )
     return "\n".join(lines)
 
 
 def build_local_chat_response(summary_context: str, messages: List[Dict[str, Any]]) -> str:
     last_user = ""
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            last_user = str(msg.get("content", "")).strip()
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            last_user = str(message.get("content", "")).strip()
             break
 
     if not last_user:
         return (
-            "Modo demo sin API key. Puedo devolver solo respuestas basicas sobre el resumen disponible. "
-            "Enviame una pregunta concreta."
+            "Respuesta corta:\n"
+            "- Modo demo sin API key.\n"
+            "- Enviame una pregunta puntual sobre los IDs visibles.\n\n"
+            "Accion sugerida:\n"
+            "- Configurar GPT_API_KEY/OPENAI_API_KEY para analisis completo.\n\n"
+            "IDs citados:\n"
+            "- Ninguno"
         )
 
     preview = summary_context[:700]
     return (
-        "Modo demo sin API key. No puedo razonar con LLM en esta instancia.\n\n"
-        f"Resumen disponible:\n{preview}\n\n"
-        "Si necesitas analisis conversacional completo, agrega una API key y reinicia el servicio ai."
+        "Respuesta corta:\n"
+        "- Modo demo sin API key.\n"
+        "- Te comparto una vista previa del resumen disponible.\n\n"
+        "Accion sugerida:\n"
+        "- Hace una consulta concreta por ID para avanzar.\n\n"
+        "IDs citados:\n"
+        "- Ninguno\n\n"
+        f"Resumen disponible:\n{preview}"
     )
 
 
-# --- Endpoints ---
 @router.post("/summary")
 def summary_endpoint(request: SummaryRequest):
     try:
@@ -165,25 +204,26 @@ def summary_endpoint(request: SummaryRequest):
         claims_context = build_claims_context(request.claims)
         filters_context = build_filters_context(request.filters)
 
-        if llm is None:
+        if not llm_clients:
             return {"summary": build_local_summary(request.claims, filters_context)}
 
         system_prompt = SUMMARY_PROMPT.format(
             claims_context=claims_context,
-            filters_context=filters_context
+            filters_context=filters_context,
         )
-
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content="Genera el resumen con mas detalle.")
+            HumanMessage(
+                content="Genera el resumen ejecutivo con foco en lectura rapida y accion."
+            ),
         ]
 
-        response = llm.invoke(messages)
-        return {"summary": response.content}
+        response, _ = invoke_with_fallback(llm_clients, messages)
+        return {"summary": str(response.content)}
 
-    except Exception as e:
-        print(f"Error in claims summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        print(f"Error in claims summary: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/chat")
@@ -193,25 +233,29 @@ def summary_chat_endpoint(request: SummaryChatRequest):
         filters_context = build_filters_context(request.filters)
         summary_context = request.summary or "No hay resumen previo."
 
-        if llm is None:
-            return {"response": build_local_chat_response(summary_context, request.messages)}
+        if not llm_clients:
+            return {
+                "response": build_local_chat_response(summary_context, request.messages)
+            }
 
         system_prompt = CHAT_PROMPT.format(
             summary_context=summary_context,
             filters_context=filters_context,
-            claims_context=claims_context
+            claims_context=claims_context,
         )
 
         lc_messages = [SystemMessage(content=system_prompt)]
-        for msg in request.messages:
-            if msg.get("role") == "user":
-                lc_messages.append(HumanMessage(content=msg.get("content", "")))
-            elif msg.get("role") == "assistant":
-                lc_messages.append(AIMessage(content=msg.get("content", "")))
+        for message in request.messages:
+            role = message.get("role")
+            content = str(message.get("content", ""))
+            if role == "user":
+                lc_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_messages.append(AIMessage(content=content))
 
-        response = llm.invoke(lc_messages)
-        return {"response": response.content}
+        response, _ = invoke_with_fallback(llm_clients, lc_messages)
+        return {"response": str(response.content)}
 
-    except Exception as e:
-        print(f"Error in claims chat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        print(f"Error in claims chat: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
