@@ -86,7 +86,7 @@ def build_fallback_response(relevant_products: List[dict]) -> str:
 
 
 SUPPORT_SYSTEM_PROMPT_TEMPLATE = """
-Sos Eduardo, asistente de CEA Insumos para Soporte y Reclamos.
+Sos Gustavo, asistente de CEA Insumos para Soporte y Reclamos.
 Tu trabajo es ayudar a cargar tickets sin abrumar.
 No vendas productos ni inventes politicas.
 
