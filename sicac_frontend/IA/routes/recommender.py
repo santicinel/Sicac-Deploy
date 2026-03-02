@@ -389,7 +389,7 @@ def build_local_recommendation_response(
     )
 
 SYSTEM_PROMPT_TEMPLATE = """
-Sos Anibal, el vendedor experto en Inteligencia Artificial de CEA Insumos.
+Sos Gustavo, el vendedor experto en Inteligencia Artificial de CEA Insumos.
 Tu objetivo es analizar la solicitud del cliente y los productos encontrados para recomendar la mejor opcion.
 
 Perfil:
