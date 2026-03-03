@@ -2,6 +2,7 @@ services:
   proxy:
     image: caddy:2.8-alpine
     restart: unless-stopped
+    init: true
     ports:
       - "80:80"
       - "443:443"
@@ -10,9 +11,12 @@ services:
       DOMAIN: ${DOMAIN}
       CADDY_EMAIL: ${CADDY_EMAIL:-admin@example.com}
     depends_on:
-      - frontend
-      - backend
-      - ai
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
     command: caddy run --config /etc/caddy/${CADDYFILE:-Caddyfile} --adapter caddyfile
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -25,12 +29,20 @@ services:
       context: ../sicac_frontend
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
     build:
       context: ../sicac_backend
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    init: true
     environment:
       APP_NAME: ${APP_NAME}
       APP_ENV: production
@@ -58,22 +70,36 @@ services:
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-SICAC}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA}
       SEED_MARKER_PATH: /var/lib/sicac/.seeded
+      PORT: 8000
     volumes:
       - backend_data:/var/lib/sicac
       - backend_storage:/var/www/html/storage
       - ../sicac_frontend/IA/kb/catalogo_sielse_normalizado.json:/var/www/html/database/data/catalogo_sielse_normalizado.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/up || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
 
   ai:
     build:
       context: ../sicac_frontend/IA
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    init: true
     environment:
       AI_PORT: 8002
       GPT_API_KEY: ${GPT_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       GPT_MODEL: ${GPT_MODEL:-gpt-5.2}
       GPT_MODEL_FALLBACKS: ${GPT_MODEL_FALLBACKS:-gpt-5,gpt-4.1,gpt-4o-mini}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/', timeout=5)\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
 volumes:
   caddy_data:

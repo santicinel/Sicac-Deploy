@@ -17,7 +17,7 @@ fi
 mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/app/private bootstrap/cache
 chmod -R 775 storage bootstrap/cache
 
-php artisan config:clear
+php artisan optimize:clear
 php artisan migrate --force
 
 if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
@@ -28,5 +28,7 @@ if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
     touch "$marker"
   fi
 fi
+
+php artisan config:cache
 
 exec php artisan serve --host=0.0.0.0 --port="${PORT:-8000}"
