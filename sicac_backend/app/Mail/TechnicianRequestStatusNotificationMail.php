@@ -18,6 +18,7 @@ class TechnicianRequestStatusNotificationMail extends Mailable
         public string $statusLabel,
         public string $typeLabel,
         public ?string $scheduledVisitDate,
+        public ?string $scheduledVisitTime,
         public string $updatedByLabel
     ) {
     }

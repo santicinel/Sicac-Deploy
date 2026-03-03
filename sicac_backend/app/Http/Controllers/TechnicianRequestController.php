@@ -37,6 +37,7 @@ class TechnicianRequestController extends Controller
             // Obtener filtros opcionales
             $status = $request->query('status'); // pending, assigned, completed, cancelled
             $technicianId = $request->query('technician_id');
+            $requestingUserId = $request->query('requesting_user_id');
             $search = $request->query('search');
             $type = $request->query('type');
 
@@ -60,6 +61,11 @@ class TechnicianRequestController extends Controller
                 $query->where('technician_id', $technicianId);
             }
 
+            if ($requestingUserId) {
+                Log::debug('TechnicianRequest.index: Filtrando por requesting_user_id', ['requesting_user_id' => $requestingUserId]);
+                $query->where('requesting_user_id', $requestingUserId);
+            }
+
             if ($search) {
                 Log::debug('TechnicianRequest.index: Buscando por texto', ['search' => $search]);
                 $query->where(function ($q) use ($search) {
@@ -76,6 +82,7 @@ class TechnicianRequestController extends Controller
                 'filters' => [
                     'status' => $status,
                     'technician_id' => $technicianId,
+                    'requesting_user_id' => $requestingUserId,
                     'search' => $search,
                     'type' => $type,
                 ],
@@ -342,7 +349,7 @@ class TechnicianRequestController extends Controller
 
             $validatedData = $request->validate(TechnicianRequest::statusUpdateRules());
 
-            $this->validateScheduledVisitDate($technicianRequest, $validatedData);
+            $this->validateScheduledVisitSchedule($technicianRequest, $validatedData);
             $this->validateResolutionSummaryOnComplete($technicianRequest, $validatedData);
             $this->validateCompletionDetailsOnComplete($technicianRequest, $validatedData);
             $this->validateCancellationReasonOnCancel($technicianRequest, $validatedData);
@@ -356,12 +363,14 @@ class TechnicianRequestController extends Controller
 
             $oldStatus = $technicianRequest->status;
             $oldScheduledVisitDate = $this->normalizeDateString($technicianRequest->scheduled_visit_date);
+            $oldScheduledVisitTime = $this->normalizeTimeString($technicianRequest->scheduled_visit_time);
             $technicianRequest->update($validatedData);
             $this->syncClaimStatusFromRequest($technicianRequest);
             $this->sendStatusNotificationIfNeeded(
                 $technicianRequest,
                 $oldStatus,
                 $oldScheduledVisitDate,
+                $oldScheduledVisitTime,
                 $user->role
             );
 
@@ -405,6 +414,7 @@ class TechnicianRequestController extends Controller
             $this->authorize('update', $technicianRequest);
 
             $validatedData = $request->validate(TechnicianRequest::updateRules());
+            $this->validateScheduledVisitSchedule($technicianRequest, $validatedData);
             $this->validateCompletionDetailsOnComplete($technicianRequest, $validatedData);
             $this->validateCancellationReasonOnCancel($technicianRequest, $validatedData);
             $this->normalizeCompletionDate($technicianRequest, $validatedData);
@@ -418,12 +428,14 @@ class TechnicianRequestController extends Controller
             $oldData = $technicianRequest->toArray();
             $oldStatus = $technicianRequest->status;
             $oldScheduledVisitDate = $this->normalizeDateString($technicianRequest->scheduled_visit_date);
+            $oldScheduledVisitTime = $this->normalizeTimeString($technicianRequest->scheduled_visit_time);
             $technicianRequest->update($validatedData);
             $this->syncClaimStatusFromRequest($technicianRequest);
             $this->sendStatusNotificationIfNeeded(
                 $technicianRequest,
                 $oldStatus,
                 $oldScheduledVisitDate,
+                $oldScheduledVisitTime,
                 $user->role
             );
 
@@ -504,6 +516,7 @@ class TechnicianRequestController extends Controller
             // Asignar la solicitud al technician y cambiar estado a assigned
             $oldStatus = $technicianRequest->status;
             $oldScheduledVisitDate = $this->normalizeDateString($technicianRequest->scheduled_visit_date);
+            $oldScheduledVisitTime = $this->normalizeTimeString($technicianRequest->scheduled_visit_time);
             $technicianRequest->update([
                 'technician_id' => $technician->id,
                 'status' => TechnicianRequest::STATUS_ASSIGNED,
@@ -513,6 +526,7 @@ class TechnicianRequestController extends Controller
                 $technicianRequest,
                 $oldStatus,
                 $oldScheduledVisitDate,
+                $oldScheduledVisitTime,
                 $user->role
             );
 
@@ -596,13 +610,39 @@ class TechnicianRequestController extends Controller
         ]);
     }
 
-    private function validateScheduledVisitDate(TechnicianRequest $technicianRequest, array $validatedData): void
+    private function validateScheduledVisitSchedule(TechnicianRequest $technicianRequest, array &$validatedData): void
     {
-        if (! array_key_exists('scheduled_visit_date', $validatedData) || empty($validatedData['scheduled_visit_date'])) {
+        $hasDateKey = array_key_exists('scheduled_visit_date', $validatedData);
+        $hasTimeKey = array_key_exists('scheduled_visit_time', $validatedData);
+
+        if (! $hasDateKey && ! $hasTimeKey) {
             return;
         }
 
-        $scheduled = Carbon::parse($validatedData['scheduled_visit_date'])->startOfDay();
+        $scheduledVisitDate = $hasDateKey
+            ? trim((string) ($validatedData['scheduled_visit_date'] ?? ''))
+            : trim((string) ($technicianRequest->scheduled_visit_date ?? ''));
+        $scheduledVisitTime = $hasTimeKey
+            ? trim((string) ($validatedData['scheduled_visit_time'] ?? ''))
+            : trim((string) ($technicianRequest->scheduled_visit_time ?? ''));
+
+        $hasDate = $scheduledVisitDate !== '';
+        $hasTime = $scheduledVisitTime !== '';
+
+        if (! $hasDate && ! $hasTime) {
+            $validatedData['scheduled_visit_date'] = null;
+            $validatedData['scheduled_visit_time'] = null;
+            return;
+        }
+
+        if (! $hasDate || ! $hasTime) {
+            throw ValidationException::withMessages([
+                'scheduled_visit_date' => 'Debes indicar la fecha de visita junto con la hora estimada.',
+                'scheduled_visit_time' => 'Debes indicar la hora estimada de visita junto con la fecha.',
+            ]);
+        }
+
+        $scheduled = Carbon::parse($scheduledVisitDate)->startOfDay();
         $wantedStart = Carbon::parse($technicianRequest->wanted_date_start)->startOfDay();
         $wantedEnd = Carbon::parse($technicianRequest->wanted_date_end)->startOfDay();
 
@@ -611,6 +651,18 @@ class TechnicianRequestController extends Controller
                 'scheduled_visit_date' => 'La fecha elegida debe estar dentro del rango solicitado por el cliente.',
             ]);
         }
+
+        $normalizedVisitTime = $this->normalizeTimeForStorage($scheduledVisitTime);
+        if ($normalizedVisitTime === null) {
+            throw ValidationException::withMessages([
+                'scheduled_visit_time' => 'La hora estimada de visita no tiene un formato valido.',
+            ]);
+        }
+
+        $this->validateScheduledVisitTimeMatchesRequestedShift($technicianRequest, $normalizedVisitTime);
+
+        $validatedData['scheduled_visit_date'] = Carbon::parse($scheduledVisitDate)->toDateString();
+        $validatedData['scheduled_visit_time'] = $normalizedVisitTime;
     }
 
     private function validateResolutionSummaryOnComplete(TechnicianRequest $technicianRequest, array &$validatedData): void
@@ -627,6 +679,16 @@ class TechnicianRequestController extends Controller
             ]);
         }
 
+        $scheduledVisitTime = $validatedData['scheduled_visit_time'] ?? $technicianRequest->scheduled_visit_time;
+        $normalizedVisitTime = $this->normalizeTimeForStorage($scheduledVisitTime);
+        if ($normalizedVisitTime === null) {
+            throw ValidationException::withMessages([
+                'scheduled_visit_time' => 'Debes indicar la hora estimada en la que visitaras al cliente antes de completar la tarea.',
+            ]);
+        }
+
+        $this->validateScheduledVisitTimeMatchesRequestedShift($technicianRequest, $normalizedVisitTime);
+
         $scheduled = Carbon::parse($scheduledVisitDate)->startOfDay();
         $wantedStart = Carbon::parse($technicianRequest->wanted_date_start)->startOfDay();
         $wantedEnd = Carbon::parse($technicianRequest->wanted_date_end)->startOfDay();
@@ -635,6 +697,8 @@ class TechnicianRequestController extends Controller
                 'scheduled_visit_date' => 'La fecha elegida debe estar dentro del rango solicitado por el cliente.',
             ]);
         }
+
+        $validatedData['scheduled_visit_time'] = $normalizedVisitTime;
 
         $summary = array_key_exists('resolution_summary', $validatedData)
             ? trim((string) $validatedData['resolution_summary'])
@@ -747,15 +811,18 @@ class TechnicianRequestController extends Controller
         TechnicianRequest $technicianRequest,
         string $oldStatus,
         ?string $oldScheduledVisitDate,
+        ?string $oldScheduledVisitTime,
         ?string $updatedByRole
     ): void {
         $newStatus = (string) $technicianRequest->status;
         $newScheduledVisitDate = $this->normalizeDateString($technicianRequest->scheduled_visit_date);
+        $newScheduledVisitTime = $this->normalizeTimeString($technicianRequest->scheduled_visit_time);
 
         $statusChanged = $oldStatus !== $newStatus;
-        $visitDateChanged = $oldScheduledVisitDate !== $newScheduledVisitDate;
+        $visitScheduleChanged = $oldScheduledVisitDate !== $newScheduledVisitDate
+            || $oldScheduledVisitTime !== $newScheduledVisitTime;
 
-        if (! $statusChanged && ! $visitDateChanged) {
+        if (! $statusChanged && ! $visitScheduleChanged) {
             return;
         }
 
@@ -780,6 +847,7 @@ class TechnicianRequestController extends Controller
                     statusLabel: $statusLabel,
                     typeLabel: $typeLabel,
                     scheduledVisitDate: $newScheduledVisitDate,
+                    scheduledVisitTime: $newScheduledVisitTime,
                     updatedByLabel: $updatedByLabel
                 ));
 
@@ -787,9 +855,10 @@ class TechnicianRequestController extends Controller
                     'technician_request_id' => $technicianRequest->id,
                     'email' => $email,
                     'status_changed' => $statusChanged,
-                    'visit_date_changed' => $visitDateChanged,
+                    'visit_schedule_changed' => $visitScheduleChanged,
                     'status' => $newStatus,
                     'scheduled_visit_date' => $newScheduledVisitDate,
+                    'scheduled_visit_time' => $newScheduledVisitTime,
                 ]);
             } catch (\Throwable $exception) {
                 Log::error('TechnicianRequest.notification: error al enviar aviso', [
@@ -808,14 +877,16 @@ class TechnicianRequestController extends Controller
             statusLabel: $statusLabel,
             typeLabel: $typeLabel,
             scheduledVisitDate: $newScheduledVisitDate,
+            scheduledVisitTime: $newScheduledVisitTime,
             updatedByLabel: $updatedByLabel,
             logContext: 'TechnicianRequest.notification',
             logData: [
                 'technician_request_id' => $technicianRequest->id,
                 'status_changed' => $statusChanged,
-                'visit_date_changed' => $visitDateChanged,
+                'visit_schedule_changed' => $visitScheduleChanged,
                 'status' => $newStatus,
                 'scheduled_visit_date' => $newScheduledVisitDate,
+                'scheduled_visit_time' => $newScheduledVisitTime,
             ],
         );
     }
@@ -826,6 +897,7 @@ class TechnicianRequestController extends Controller
         string $statusLabel,
         string $typeLabel,
         ?string $scheduledVisitDate,
+        ?string $scheduledVisitTime,
         string $updatedByLabel,
         string $logContext,
         array $logData = []
@@ -836,6 +908,7 @@ class TechnicianRequestController extends Controller
             statusLabel: $statusLabel,
             typeLabel: $typeLabel,
             scheduledVisitDate: $scheduledVisitDate,
+            scheduledVisitTime: $scheduledVisitTime,
             updatedByLabel: $updatedByLabel,
             logContext: $logContext,
             logData: $logData,
@@ -896,6 +969,84 @@ class TechnicianRequestController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function normalizeTimeString(mixed $value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d{2}:\d{2}$/', $normalized) === 1) {
+            return $normalized;
+        }
+
+        if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $normalized) === 1) {
+            return substr($normalized, 0, 5);
+        }
+
+        try {
+            return Carbon::createFromFormat('H:i:s', $normalized)->format('H:i');
+        } catch (\Throwable) {
+            try {
+                return Carbon::createFromFormat('H:i', $normalized)->format('H:i');
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+    }
+
+    private function normalizeTimeForStorage(mixed $value): ?string
+    {
+        $normalized = $this->normalizeTimeString($value);
+        if ($normalized === null) {
+            return null;
+        }
+
+        return "{$normalized}:00";
+    }
+
+    private function validateScheduledVisitTimeMatchesRequestedShift(
+        TechnicianRequest $technicianRequest,
+        string $scheduledVisitTime
+    ): void {
+        $shift = $this->normalizeShiftValue($technicianRequest->time_shift);
+        if ($shift === null) {
+            return;
+        }
+
+        $normalizedTime = $this->normalizeTimeString($scheduledVisitTime);
+        if ($normalizedTime === null) {
+            return;
+        }
+
+        if ($shift === 'morning' && $normalizedTime >= '12:00') {
+            throw ValidationException::withMessages([
+                'scheduled_visit_time' => 'El turno solicitado por el cliente es manana. Solo puedes indicar horarios AM.',
+            ]);
+        }
+
+        if ($shift === 'afternoon' && $normalizedTime < '12:00') {
+            throw ValidationException::withMessages([
+                'scheduled_visit_time' => 'El turno solicitado por el cliente es tarde. Solo puedes indicar horarios PM.',
+            ]);
+        }
+    }
+
+    private function normalizeShiftValue(mixed $value): ?string
+    {
+        $normalized = strtolower(trim((string) $value));
+
+        return match ($normalized) {
+            'morning', 'manana', 'mañana' => 'morning',
+            'afternoon', 'tarde' => 'afternoon',
+            default => null,
+        };
     }
 
     private function statusLabel(string $status): string

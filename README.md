@@ -171,6 +171,20 @@ git pull
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
 
+## Rebuild puntual para cambios de IA
+
+Si cambias solo prompts, respuestas o rutas Python de la IA:
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build ai
+```
+
+Si ademas cambias textos visibles del chat en Vue (por ejemplo el encabezado "Asistente IA Gustavo"):
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build frontend ai
+```
+
 ## Notas operativas
 
 - Base de datos: SQLite persistida en volumen Docker (`backend_data`).

@@ -28,6 +28,7 @@ class TechnicianRequest extends Model
         'wanted_date_end',
         'time_shift',
         'scheduled_visit_date',
+        'scheduled_visit_time',
         'resolution_summary',
         'cancellation_reason',
         'charged_amount',
@@ -132,6 +133,7 @@ class TechnicianRequest extends Model
         return [
             'status' => 'required|in:' . implode(',', self::statuses()),
             'scheduled_visit_date' => 'nullable|date',
+            'scheduled_visit_time' => ['nullable', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'resolution_summary' => 'nullable|string|max:4000',
             'cancellation_reason' => 'nullable|string|max:4000',
             'charged_amount' => 'nullable|numeric|min:0',
@@ -153,6 +155,7 @@ class TechnicianRequest extends Model
             'wanted_date_end' => 'nullable|date|after_or_equal:wanted_date_start',
             'time_shift' => 'nullable|string',
             'scheduled_visit_date' => 'nullable|date',
+            'scheduled_visit_time' => ['nullable', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'resolution_summary' => 'nullable|string|max:4000',
             'cancellation_reason' => 'nullable|string|max:4000',
             'charged_amount' => 'nullable|numeric|min:0',

@@ -57,6 +57,7 @@ export interface ApiServiceRequest {
   wanted_date_end: string;
   time_shift: string;
   scheduled_visit_date?: string | null;
+  scheduled_visit_time?: string | null;
   resolution_summary?: string | null;
   cancellation_reason?: string | null;
   charged_amount?: number | string | null;
@@ -155,6 +156,7 @@ const getAdminRequests = async (
     search: string;
     type: ServiceRequestType;
     technician_id: number;
+    requesting_user_id: number;
   }> = {}
 ): Promise<ApiServiceRequest[]> => {
   const response = await api.get<{ data?: ApiServiceRequest[] }>("/technician-requests/admin/all", { params });
@@ -205,6 +207,7 @@ const updateRequestStatus = async (
   status: ServiceRequestStatus,
   payload: Partial<{
     scheduled_visit_date: string | null;
+    scheduled_visit_time: string | null;
     resolution_summary: string | null;
     cancellation_reason: string | null;
     charged_amount: number | null;
@@ -231,6 +234,7 @@ const updateRequest = async (
     wanted_date_end: string;
     time_shift: string;
     scheduled_visit_date: string | null;
+    scheduled_visit_time: string | null;
     resolution_summary: string | null;
     cancellation_reason: string | null;
     charged_amount: number | null;

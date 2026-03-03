@@ -420,6 +420,7 @@ class ClaimController extends Controller
         }
 
         $scheduledVisitDate = $this->normalizeDateString($technicianRequest->scheduled_visit_date);
+        $scheduledVisitTime = $this->normalizeTimeString($technicianRequest->scheduled_visit_time);
         $statusLabel = $this->requestStatusLabel($newStatus);
         $typeLabel = $this->requestTypeLabel((string) $technicianRequest->type);
         $updatedByLabel = $this->updatedByLabel($updatedByRole);
@@ -431,6 +432,7 @@ class ClaimController extends Controller
                     statusLabel: $statusLabel,
                     typeLabel: $typeLabel,
                     scheduledVisitDate: $scheduledVisitDate,
+                    scheduledVisitTime: $scheduledVisitTime,
                     updatedByLabel: $updatedByLabel
                 ));
 
@@ -459,6 +461,7 @@ class ClaimController extends Controller
             statusLabel: $statusLabel,
             typeLabel: $typeLabel,
             scheduledVisitDate: $scheduledVisitDate,
+            scheduledVisitTime: $scheduledVisitTime,
             updatedByLabel: $updatedByLabel,
             logContext: 'Claim.sync.notification',
             logData: [
@@ -476,6 +479,7 @@ class ClaimController extends Controller
         string $statusLabel,
         string $typeLabel,
         ?string $scheduledVisitDate,
+        ?string $scheduledVisitTime,
         string $updatedByLabel,
         string $logContext,
         array $logData = []
@@ -486,6 +490,7 @@ class ClaimController extends Controller
             statusLabel: $statusLabel,
             typeLabel: $typeLabel,
             scheduledVisitDate: $scheduledVisitDate,
+            scheduledVisitTime: $scheduledVisitTime,
             updatedByLabel: $updatedByLabel,
             logContext: $logContext,
             logData: $logData,
@@ -545,6 +550,36 @@ class ClaimController extends Controller
             return \Carbon\Carbon::parse($value)->toDateString();
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    private function normalizeTimeString(mixed $value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d{2}:\d{2}$/', $normalized) === 1) {
+            return $normalized;
+        }
+
+        if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $normalized) === 1) {
+            return substr($normalized, 0, 5);
+        }
+
+        try {
+            return \Carbon\Carbon::createFromFormat('H:i:s', $normalized)->format('H:i');
+        } catch (\Throwable) {
+            try {
+                return \Carbon\Carbon::createFromFormat('H:i', $normalized)->format('H:i');
+            } catch (\Throwable) {
+                return null;
+            }
         }
     }
 

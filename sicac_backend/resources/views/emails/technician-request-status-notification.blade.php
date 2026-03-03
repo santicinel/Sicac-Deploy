@@ -24,6 +24,35 @@
         }
     };
 
+    $formatTime = function (?string $value): string {
+        if (empty($value)) {
+            return 'Sin horario';
+        }
+
+        $normalized = trim((string) $value);
+        if ($normalized === '') {
+            return 'Sin horario';
+        }
+
+        if (preg_match('/^\d{2}:\d{2}$/', $normalized) === 1) {
+            return $normalized . ' hs';
+        }
+
+        if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $normalized) === 1) {
+            return substr($normalized, 0, 5) . ' hs';
+        }
+
+        try {
+            return \Carbon\Carbon::createFromFormat('H:i:s', $normalized)->format('H:i') . ' hs';
+        } catch (\Throwable) {
+            try {
+                return \Carbon\Carbon::createFromFormat('H:i', $normalized)->format('H:i') . ' hs';
+            } catch (\Throwable) {
+                return (string) $value;
+            }
+        }
+    };
+
     $isCompleted = $technicianRequest->status === 'completed';
     $isCancelled = $technicianRequest->status === 'cancelled';
 
@@ -75,6 +104,10 @@
                             <tr>
                                 <td style="padding:10px 12px; border:1px solid #e5e7eb; background-color:#f9fafb; font-size:13px; color:#111111; font-weight:700;">Fecha visita</td>
                                 <td style="padding:10px 12px; border:1px solid #e5e7eb; font-size:13px; color:#111111;">{{ $formatDate($scheduledVisitDate) }}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:10px 12px; border:1px solid #e5e7eb; background-color:#f9fafb; font-size:13px; color:#111111; font-weight:700;">Hora estimada de visita</td>
+                                <td style="padding:10px 12px; border:1px solid #e5e7eb; font-size:13px; color:#111111;">{{ $formatTime($scheduledVisitTime) }}</td>
                             </tr>
                             <tr>
                                 <td style="padding:10px 12px; border:1px solid #e5e7eb; background-color:#f9fafb; font-size:13px; color:#111111; font-weight:700;">Turno solicitado</td>

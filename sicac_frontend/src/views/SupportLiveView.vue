@@ -124,6 +124,25 @@ const formatDate = (value?: string | null) => {
   return new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(date);
 };
 
+const normalizeTimeInput = (value?: string | null) => {
+  if (!value) return "";
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (match?.[1] && match[2]) {
+    return `${match[1]}:${match[2]}`;
+  }
+
+  const parsed = new Date(`1970-01-01T${raw}`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+};
+
+const formatTime = (value?: string | null) => {
+  const normalized = normalizeTimeInput(value);
+  if (!normalized) return "Sin horario";
+  return `${normalized} hs`;
+};
+
 const formatCurrency = (value?: number | string | null) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "Sin monto";
@@ -462,6 +481,9 @@ onMounted(async () => {
               <p v-if="item.scheduled_visit_date" class="text-xs text-muted-foreground">
                 Visita programada: {{ formatDate(item.scheduled_visit_date) }}
               </p>
+              <p v-if="item.scheduled_visit_time" class="text-xs text-muted-foreground">
+                Hora estimada de visita: {{ formatTime(item.scheduled_visit_time) }}
+              </p>
               <p v-if="item.charged_amount !== null && item.charged_amount !== undefined" class="text-xs text-muted-foreground">
                 Monto pagado: {{ formatCurrency(item.charged_amount) }}
               </p>
@@ -547,6 +569,10 @@ onMounted(async () => {
           <p v-if="selectedRequest.scheduled_visit_date">
             <span class="font-semibold">Visita programada por tecnico:</span>
             {{ formatDate(selectedRequest.scheduled_visit_date) }}
+          </p>
+          <p v-if="selectedRequest.scheduled_visit_time">
+            <span class="font-semibold">Hora estimada de visita:</span>
+            {{ formatTime(selectedRequest.scheduled_visit_time) }}
           </p>
           <div v-if="selectedRequest.resolution_summary">
             <p><span class="font-semibold">Solucion informada por tecnico:</span></p>

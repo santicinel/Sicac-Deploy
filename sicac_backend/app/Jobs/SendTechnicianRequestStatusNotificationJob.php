@@ -23,6 +23,7 @@ class SendTechnicianRequestStatusNotificationJob implements ShouldQueue
         public string $statusLabel,
         public string $typeLabel,
         public ?string $scheduledVisitDate,
+        public ?string $scheduledVisitTime,
         public string $updatedByLabel,
         public string $logContext,
         public array $logData = []
@@ -48,6 +49,7 @@ class SendTechnicianRequestStatusNotificationJob implements ShouldQueue
                 statusLabel: $this->statusLabel,
                 typeLabel: $this->typeLabel,
                 scheduledVisitDate: $this->scheduledVisitDate,
+                scheduledVisitTime: $this->scheduledVisitTime,
                 updatedByLabel: $this->updatedByLabel
             ));
 
