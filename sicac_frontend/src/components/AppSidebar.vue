@@ -68,6 +68,12 @@ const navMain = computed(() => {
         isActive: isActive("/admin/ratings"),
       },
       {
+        title: "Analíticas BI",
+        url: "/admin/dashboard-bi",
+        icon: "mdi:chart-bar",
+        isActive: isActive("/admin/dashboard-bi"),
+      },
+      {
         title: "Mano de obra",
         url: "/admin/labor-rate",
         icon: "mdi:hammer-wrench",

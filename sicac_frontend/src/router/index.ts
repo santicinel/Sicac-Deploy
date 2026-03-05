@@ -142,6 +142,16 @@ const routes: RouteRecordRaw[] = [
         },
     },
     {
+        path: '/admin/dashboard-bi',
+        name: 'admin-dashboard-bi',
+        component: () => import('@/views/admin/BIDashboardView.vue'),
+        meta: {
+            layout: 'app',
+            requiresAuth: true,
+            requiresRole: 'admin'
+        },
+    },
+    {
         path: '/admin/technicians',
         name: 'admin-technicians',
         component: () => import('@/views/admin/AdminTechniciansLiveView.vue'),

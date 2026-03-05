@@ -15,6 +15,7 @@ use App\Http\Controllers\AppSettingController;
 use App\Http\Controllers\RatingController;
 use App\Http\Controllers\RatingSummaryController;
 use App\Http\Controllers\ServiceFeedbackController;
+use App\Http\Controllers\AnalyticsController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/register', [AuthController::class, 'register']);
@@ -92,6 +93,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Resumen de puntajes (admin)
     Route::get('/ratings', [RatingSummaryController::class, 'index']);
+
+    // Analíticas BI Dashboard (admin)
+    Route::get('/analytics/admin/stats', [AnalyticsController::class, 'getStats']);
 });
 
 Route::apiResource('technicians', TechnicianController::class);
