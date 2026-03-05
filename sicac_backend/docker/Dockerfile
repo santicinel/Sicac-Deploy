@@ -29,7 +29,8 @@ RUN composer dump-autoload --no-dev --optimize \
     && php artisan package:discover --ansi
 
 COPY docker/start.sh /usr/local/bin/start-backend
-RUN chmod +x /usr/local/bin/start-backend
+COPY docker/start-worker.sh /usr/local/bin/start-backend-worker
+RUN chmod +x /usr/local/bin/start-backend /usr/local/bin/start-backend-worker
 
 EXPOSE 8000
 

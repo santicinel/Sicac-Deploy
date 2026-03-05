@@ -63,7 +63,7 @@ const handleSubmit = async () => {
 <template>
   <Card class="border shadow-lg">
     <CardHeader class="text-center pb-2">
-      <CardTitle class="text-xl">Iniciar sesion</CardTitle>
+      <CardTitle class="text-xl">Iniciar sesión</CardTitle>
       <CardDescription>Ingresa tu email para acceder a tu cuenta</CardDescription>
     </CardHeader>
 

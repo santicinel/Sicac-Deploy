@@ -1,3 +1,33 @@
+x-backend-env: &backend-env
+  APP_NAME: ${APP_NAME}
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: https://${DOMAIN}
+  APP_KEY: ${APP_KEY}
+  LOG_CHANNEL: stack
+  LOG_LEVEL: info
+  DB_CONNECTION: sqlite
+  DB_DATABASE: /var/lib/sicac/database.sqlite
+  SESSION_DRIVER: database
+  SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE}
+  SESSION_SAME_SITE: ${SESSION_SAME_SITE}
+  SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+  FRONTEND_URLS: ${FRONTEND_URLS}
+  CACHE_STORE: file
+  QUEUE_CONNECTION: ${QUEUE_CONNECTION:-database}
+  MAIL_MAILER: ${MAIL_MAILER:-log}
+  MAIL_SCHEME: ${MAIL_SCHEME:-}
+  MAIL_HOST: ${MAIL_HOST:-127.0.0.1}
+  MAIL_PORT: ${MAIL_PORT:-2525}
+  MAIL_USERNAME: ${MAIL_USERNAME:-}
+  MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-hello@example.com}
+  MAIL_FROM_NAME: ${MAIL_FROM_NAME:-SICAC}
+  SEED_DEMO_DATA: ${SEED_DEMO_DATA}
+  SEED_MARKER_PATH: /var/lib/sicac/.seeded
+  PORT: 8000
+  DISABLE_NOTIFICATION_WORKER_SPAWN: ${DISABLE_NOTIFICATION_WORKER_SPAWN:-true}
+
 services:
   proxy:
     image: caddy:2.8-alpine
@@ -43,34 +73,7 @@ services:
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     init: true
-    environment:
-      APP_NAME: ${APP_NAME}
-      APP_ENV: production
-      APP_DEBUG: "false"
-      APP_URL: https://${DOMAIN}
-      APP_KEY: ${APP_KEY}
-      LOG_CHANNEL: stack
-      LOG_LEVEL: info
-      DB_CONNECTION: sqlite
-      DB_DATABASE: /var/lib/sicac/database.sqlite
-      SESSION_DRIVER: database
-      SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE}
-      SESSION_SAME_SITE: ${SESSION_SAME_SITE}
-      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
-      FRONTEND_URLS: ${FRONTEND_URLS}
-      CACHE_STORE: file
-      QUEUE_CONNECTION: sync
-      MAIL_MAILER: ${MAIL_MAILER:-log}
-      MAIL_SCHEME: ${MAIL_SCHEME:-}
-      MAIL_HOST: ${MAIL_HOST:-127.0.0.1}
-      MAIL_PORT: ${MAIL_PORT:-2525}
-      MAIL_USERNAME: ${MAIL_USERNAME:-}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
-      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-hello@example.com}
-      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-SICAC}
-      SEED_DEMO_DATA: ${SEED_DEMO_DATA}
-      SEED_MARKER_PATH: /var/lib/sicac/.seeded
-      PORT: 8000
+    environment: *backend-env
     volumes:
       - backend_data:/var/lib/sicac
       - backend_storage:/var/www/html/storage
@@ -81,6 +84,29 @@ services:
       timeout: 5s
       retries: 10
       start_period: 25s
+
+  backend_worker:
+    build:
+      context: ../sicac_backend
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    init: true
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      SEED_DEMO_DATA: "false"
+      PORT: 8001
+      QUEUE_NAMES: ${QUEUE_NAMES:-mail-notifications,default}
+      QUEUE_SLEEP: ${QUEUE_SLEEP:-1}
+      QUEUE_TRIES: ${QUEUE_TRIES:-3}
+      QUEUE_TIMEOUT: ${QUEUE_TIMEOUT:-120}
+    volumes:
+      - backend_data:/var/lib/sicac
+      - backend_storage:/var/www/html/storage
+      - ../sicac_frontend/IA/kb/catalogo_sielse_normalizado.json:/var/www/html/database/data/catalogo_sielse_normalizado.json:ro
+    command: ["start-backend-worker"]
 
   ai:
     build:

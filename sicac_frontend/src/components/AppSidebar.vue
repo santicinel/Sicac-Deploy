@@ -7,6 +7,7 @@ import { Icon } from "@iconify/vue"
 
 import NavMain from '@/components/NavMain.vue'
 import NavUser from '@/components/NavUser.vue'
+import TechnicianDailyItinerary from '@/components/TechnicianDailyItinerary.vue'
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +36,8 @@ const user = computed(() => {
     avatar: "/avatars/shadcn.jpg",
   }
 })
+
+const isTechnician = computed(() => authStore.role === "technician")
 
 const isActive = (url: string) => {
     return route.path === url || route.path.startsWith(url + '/')
@@ -155,6 +158,7 @@ const navMain = computed(() => {
     </SidebarHeader>
     <SidebarContent>
       <NavMain :items="navMain" />
+      <TechnicianDailyItinerary v-if="isTechnician" />
     </SidebarContent>
     <SidebarFooter>
       <SidebarMenu>

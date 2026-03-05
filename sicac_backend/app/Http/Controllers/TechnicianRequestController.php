@@ -614,55 +614,140 @@ class TechnicianRequestController extends Controller
     {
         $hasDateKey = array_key_exists('scheduled_visit_date', $validatedData);
         $hasTimeKey = array_key_exists('scheduled_visit_time', $validatedData);
+        $existingScheduledDate = $this->normalizeDateString($technicianRequest->scheduled_visit_date);
 
         if (! $hasDateKey && ! $hasTimeKey) {
             return;
         }
 
-        $scheduledVisitDate = $hasDateKey
-            ? trim((string) ($validatedData['scheduled_visit_date'] ?? ''))
-            : trim((string) ($technicianRequest->scheduled_visit_date ?? ''));
-        $scheduledVisitTime = $hasTimeKey
-            ? trim((string) ($validatedData['scheduled_visit_time'] ?? ''))
-            : trim((string) ($technicianRequest->scheduled_visit_time ?? ''));
+        if ($hasDateKey) {
+            $scheduledVisitDate = trim((string) ($validatedData['scheduled_visit_date'] ?? ''));
+            if ($scheduledVisitDate === '') {
+                if ($existingScheduledDate !== null) {
+                    throw ValidationException::withMessages([
+                        'scheduled_visit_date' => 'La fecha de visita ya fue guardada y no puede modificarse.',
+                    ]);
+                }
+                $validatedData['scheduled_visit_date'] = null;
+            } else {
+                $normalizedScheduledDate = Carbon::parse($scheduledVisitDate)->toDateString();
 
-        $hasDate = $scheduledVisitDate !== '';
-        $hasTime = $scheduledVisitTime !== '';
+                if ($existingScheduledDate !== null && $normalizedScheduledDate !== $existingScheduledDate) {
+                    throw ValidationException::withMessages([
+                        'scheduled_visit_date' => 'La fecha de visita ya fue guardada y no puede modificarse.',
+                    ]);
+                }
 
-        if (! $hasDate && ! $hasTime) {
+                $scheduled = Carbon::parse($normalizedScheduledDate)->startOfDay();
+                $wantedStart = Carbon::parse($technicianRequest->wanted_date_start)->startOfDay();
+                $wantedEnd = Carbon::parse($technicianRequest->wanted_date_end)->startOfDay();
+
+                if ($scheduled->lt($wantedStart) || $scheduled->gt($wantedEnd)) {
+                    throw ValidationException::withMessages([
+                        'scheduled_visit_date' => 'La fecha elegida debe estar dentro del rango solicitado por el cliente.',
+                    ]);
+                }
+
+                $validatedData['scheduled_visit_date'] = $normalizedScheduledDate;
+            }
+        }
+
+        if ($hasTimeKey) {
+            $scheduledVisitTime = trim((string) ($validatedData['scheduled_visit_time'] ?? ''));
+            if ($scheduledVisitTime === '') {
+                $validatedData['scheduled_visit_time'] = null;
+            } else {
+                $normalizedVisitTime = $this->normalizeTimeForStorage($scheduledVisitTime);
+                if ($normalizedVisitTime === null) {
+                    throw ValidationException::withMessages([
+                        'scheduled_visit_time' => 'La hora estimada de visita no tiene un formato valido.',
+                    ]);
+                }
+
+                $this->validateScheduledVisitTimeMatchesRequestedShift($technicianRequest, $normalizedVisitTime);
+                $validatedData['scheduled_visit_time'] = $normalizedVisitTime;
+            }
+        }
+
+        $nextDate = array_key_exists('scheduled_visit_date', $validatedData)
+            ? $validatedData['scheduled_visit_date']
+            : $technicianRequest->scheduled_visit_date;
+        $nextTime = array_key_exists('scheduled_visit_time', $validatedData)
+            ? $validatedData['scheduled_visit_time']
+            : $technicianRequest->scheduled_visit_time;
+        $nextTechnicianId = array_key_exists('technician_id', $validatedData)
+            ? $validatedData['technician_id']
+            : $technicianRequest->technician_id;
+
+        if (! empty($nextTime) && empty($nextDate)) {
+            throw ValidationException::withMessages([
+                'scheduled_visit_date' => 'Primero debes guardar la fecha de visita antes de asignar la hora.',
+            ]);
+        }
+
+        $this->validateScheduledVisitSlotAvailability(
+            currentRequestId: (int) $technicianRequest->id,
+            technicianId: $nextTechnicianId,
+            scheduledVisitDate: $nextDate,
+            scheduledVisitTime: $nextTime,
+            nextStatus: $validatedData['status'] ?? $technicianRequest->status,
+        );
+
+        if (empty($nextDate) && empty($nextTime)) {
             $validatedData['scheduled_visit_date'] = null;
             $validatedData['scheduled_visit_time'] = null;
+        }
+    }
+
+    private function validateScheduledVisitSlotAvailability(
+        int $currentRequestId,
+        mixed $technicianId,
+        mixed $scheduledVisitDate,
+        mixed $scheduledVisitTime,
+        mixed $nextStatus
+    ): void {
+        $status = (string) $nextStatus;
+        if (
+            $status === TechnicianRequest::STATUS_COMPLETED
+            || $status === TechnicianRequest::STATUS_CANCELLED
+        ) {
             return;
         }
 
-        if (! $hasDate || ! $hasTime) {
-            throw ValidationException::withMessages([
-                'scheduled_visit_date' => 'Debes indicar la fecha de visita junto con la hora estimada.',
-                'scheduled_visit_time' => 'Debes indicar la hora estimada de visita junto con la fecha.',
-            ]);
+        $normalizedDate = $this->normalizeDateString($scheduledVisitDate);
+        $normalizedTimeForStorage = $this->normalizeTimeForStorage($scheduledVisitTime);
+        $normalizedTimeWithoutSeconds = $this->normalizeTimeString($scheduledVisitTime);
+        $normalizedTechnicianId = (int) $technicianId;
+
+        if (
+            $normalizedTechnicianId <= 0
+            || $normalizedDate === null
+            || $normalizedTimeForStorage === null
+        ) {
+            return;
         }
 
-        $scheduled = Carbon::parse($scheduledVisitDate)->startOfDay();
-        $wantedStart = Carbon::parse($technicianRequest->wanted_date_start)->startOfDay();
-        $wantedEnd = Carbon::parse($technicianRequest->wanted_date_end)->startOfDay();
+        $conflictExists = TechnicianRequest::query()
+            ->where('id', '!=', $currentRequestId)
+            ->where('technician_id', $normalizedTechnicianId)
+            ->where('scheduled_visit_date', $normalizedDate)
+            ->whereNotIn('status', [
+                TechnicianRequest::STATUS_COMPLETED,
+                TechnicianRequest::STATUS_CANCELLED,
+            ])
+            ->where(function ($query) use ($normalizedTimeForStorage, $normalizedTimeWithoutSeconds) {
+                $query->where('scheduled_visit_time', $normalizedTimeForStorage);
+                if ($normalizedTimeWithoutSeconds !== null) {
+                    $query->orWhere('scheduled_visit_time', $normalizedTimeWithoutSeconds);
+                }
+            })
+            ->exists();
 
-        if ($scheduled->lt($wantedStart) || $scheduled->gt($wantedEnd)) {
+        if ($conflictExists) {
             throw ValidationException::withMessages([
-                'scheduled_visit_date' => 'La fecha elegida debe estar dentro del rango solicitado por el cliente.',
+                'scheduled_visit_time' => 'Ese horario ya esta asignado para otra visita del tecnico.',
             ]);
         }
-
-        $normalizedVisitTime = $this->normalizeTimeForStorage($scheduledVisitTime);
-        if ($normalizedVisitTime === null) {
-            throw ValidationException::withMessages([
-                'scheduled_visit_time' => 'La hora estimada de visita no tiene un formato valido.',
-            ]);
-        }
-
-        $this->validateScheduledVisitTimeMatchesRequestedShift($technicianRequest, $normalizedVisitTime);
-
-        $validatedData['scheduled_visit_date'] = Carbon::parse($scheduledVisitDate)->toDateString();
-        $validatedData['scheduled_visit_time'] = $normalizedVisitTime;
     }
 
     private function validateResolutionSummaryOnComplete(TechnicianRequest $technicianRequest, array &$validatedData): void
@@ -924,6 +1009,10 @@ class TechnicianRequestController extends Controller
 
     private function spawnNotificationWorkerIfNeeded(): void
     {
+        if (filter_var(env('DISABLE_NOTIFICATION_WORKER_SPAWN', false), FILTER_VALIDATE_BOOL)) {
+            return;
+        }
+
         if ($this->notificationWorkerSpawned || app()->environment('testing')) {
             return;
         }

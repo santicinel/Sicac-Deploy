@@ -75,12 +75,12 @@ const resolveErrorMessage = (error: unknown) => {
   if (error instanceof Error && error.message) {
     return error.message
   }
-  return 'No se pudo iniciar sesion.'
+  return 'No se pudo iniciar sesión.'
 }
 
 const handleLoginSuccess = async (response: any) => {
   formState.value = 'success'
-  toast.success('Inicio de sesion correcto.')
+  toast.success('Inicio de sesión correcto.')
   const user = response?.data?.user
   if (user && user.role) {
     authStore.setUser(user)

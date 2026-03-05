@@ -390,7 +390,7 @@ const finalizeClaim = () => {
   <div class="space-y-6 p-6">
     <header class="space-y-2">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-3xl font-bold tracking-tight">Panel tecnico</h1>
+        <h1 class="text-3xl font-bold tracking-tight">Panel técnico</h1>
         <div class="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-muted-foreground">
           <Icon icon="mdi:calendar-check" class="h-4 w-4" />
           <span>

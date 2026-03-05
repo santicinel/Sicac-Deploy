@@ -132,6 +132,16 @@ const routes: RouteRecordRaw[] = [
         },
     },
     {
+        path: '/technician/itinerary',
+        name: 'technician-itinerary',
+        component: () => import('@/views/technician/TechnicianItineraryView.vue'),
+        meta: {
+            layout: 'app',
+            requiresAuth: true,
+            requiresRole: 'technician'
+        },
+    },
+    {
         path: '/admin/claims',
         name: 'admin-claims',
         component: () => import('@/views/admin/AdminClaimsLiveView.vue'),

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { DateFormatter, getLocalTimeZone, parseDate } from "@internationalized/date";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import { toast } from "vue-sonner";
+import { useRoute, useRouter } from "vue-router";
 import StarRatingInput from "@/components/ui/StarRatingInput.vue";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RangeCalendar } from "@/components/ui/range-calendar";
+import { notifyTechnicianItineraryUpdated } from "@/composables/useTechnicianDailyItinerary";
 import productsService, { type Product } from "@/services/productsService";
 import supportRequestsService, {
   type ApiServiceRequest,
@@ -37,6 +39,8 @@ const clientScore = ref<number | null>(null);
 const clientComment = ref("");
 const dateFormatter = new DateFormatter("es-AR", { dateStyle: "long" });
 const localTimeZone = getLocalTimeZone();
+const route = useRoute();
+const router = useRouter();
 
 const statusLabel: Record<ServiceRequestStatus, string> = {
   pending: "Sin asignaci\u00f3n",
@@ -189,9 +193,22 @@ const filteredProducts = computed(() => {
 
 const formatDate = (value?: string | null) => {
   if (!value) return "Sin fecha";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(date);
+
+  const normalized = toDateInput(value);
+  if (normalized) {
+    const parts = normalized.split("-");
+    const year = Number(parts[0] ?? "");
+    const month = Number(parts[1] ?? "");
+    const day = Number(parts[2] ?? "");
+    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+      const localDate = new Date(year, month - 1, day);
+      return new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(localDate);
+    }
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(parsed);
 };
 
 const shiftLabel = (value?: string | null) => {
@@ -382,6 +399,10 @@ const syncScheduledVisitRange = (value?: string | null) => {
 };
 
 const clearScheduledVisitSchedule = () => {
+  if (isVisitDateLocked.value) {
+    scheduledVisitTime.value = "";
+    return;
+  }
   scheduledVisitDate.value = "";
   scheduledVisitTime.value = "";
   syncScheduledVisitRange("");
@@ -488,6 +509,12 @@ const scheduledVisitDateLabel = computed(() => {
   if (!parsed) return "Seleccionar fecha de visita";
   return dateFormatter.format(parsed.toDate(localTimeZone));
 });
+const persistedScheduledVisitDate = computed(() => toDateInput(selected.value?.scheduled_visit_date));
+const isVisitDateLocked = computed(() => Boolean(persistedScheduledVisitDate.value));
+const canEditVisitTime = computed(() => isVisitDateLocked.value);
+const saveVisitScheduleButtonLabel = computed(() =>
+  isVisitDateLocked.value ? "Guardar hora de visita" : "Guardar fecha de visita"
+);
 
 const isOutsideRequestedRange = (dateValue: string, start?: string, end?: string) => {
   if (start && dateValue < start) return true;
@@ -510,6 +537,11 @@ const enforceScheduledVisitDateInRange = (showError = false) => {
 };
 
 const onScheduledVisitRangeChange = (value: any) => {
+  if (isVisitDateLocked.value) {
+    syncScheduledVisitRange(scheduledVisitDate.value);
+    return;
+  }
+
   scheduledVisitRange.value = value;
   const pickedDate = value.end || value.start;
   if (!pickedDate) {
@@ -538,6 +570,12 @@ const validateScheduledVisitTimeForSelectedShift = (showError = false) => {
 };
 
 const onScheduledVisitTimeChange = () => {
+  if (!canEditVisitTime.value) {
+    scheduledVisitTime.value = "";
+    toast.info("Guarda primero la fecha de visita para habilitar la hora.");
+    return;
+  }
+
   if (!scheduledVisitTime.value) return;
   if (validateScheduledVisitTimeForSelectedShift(false)) return;
 
@@ -592,13 +630,54 @@ const openDetail = (item: ApiServiceRequest) => {
   clientComment.value = "";
 };
 
+const normalizeVisitQueryParam = (rawValue: unknown): number | null => {
+  const value = Array.isArray(rawValue) ? rawValue[0] : rawValue;
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric <= 0) return null;
+  return numeric;
+};
+
+const clearVisitQueryParam = async () => {
+  if (!Object.prototype.hasOwnProperty.call(route.query, "visit")) return;
+  const nextQuery = { ...route.query };
+  delete nextQuery.visit;
+  await router.replace({ query: nextQuery });
+};
+
+const openVisitFromQueryParam = () => {
+  const visitId = normalizeVisitQueryParam(route.query.visit);
+  if (visitId === null) return;
+
+  const item = myRequests.value.find((entry) => entry.id === visitId);
+  if (!item) {
+    toast.info(`La visita #${visitId} no esta disponible para este tecnico.`);
+    void clearVisitQueryParam();
+    return;
+  }
+
+  panelSearch.value = "";
+  panelDatePreset.value = "all";
+  assignedVisitFilter.value = "all";
+
+  const status = getDisplayStatus(item);
+  section.value = status === "completed" || status === "cancelled" ? "history" : "assigned";
+  openDetail(item);
+};
+
+const closeDetail = () => {
+  selected.value = null;
+  visitCalendarOpen.value = false;
+  void clearVisitQueryParam();
+};
+
 const assignSelf = async () => {
   if (!selected.value) return;
   saving.value = true;
   try {
     await supportRequestsService.assignToMyself(selected.value.id);
     toast.success("Solicitud tomada correctamente.");
-    selected.value = null;
+    notifyTechnicianItineraryUpdated();
+    closeDetail();
     void loadData();
   } catch (error) {
     console.error(error);
@@ -609,7 +688,7 @@ const assignSelf = async () => {
 
     if (alreadyAssigned) {
       toast.info("La solicitud ya estaba asignada. Se actualizo la vista.");
-      selected.value = null;
+      closeDetail();
       void loadData();
       return;
     }
@@ -703,7 +782,8 @@ const completeTask = async () => {
       });
     }
     toast.success("Tarea completada.");
-    selected.value = null;
+    notifyTechnicianItineraryUpdated();
+    closeDetail();
     void loadData();
   } catch (error) {
     console.error(error);
@@ -749,7 +829,8 @@ const updateStatus = async (status: ServiceRequestStatus) => {
     });
     selected.value = response.data.data;
     toast.success("Estado actualizado.");
-    selected.value = null;
+    notifyTechnicianItineraryUpdated();
+    closeDetail();
     void loadData();
   } catch (error) {
     console.error(error);
@@ -762,13 +843,61 @@ const updateStatus = async (status: ServiceRequestStatus) => {
 const saveVisitSchedule = async () => {
   if (!selected.value) return;
 
-  if (!scheduledVisitDate.value) {
-    toast.error("Selecciona una fecha de visita.");
+  const persistedDate = persistedScheduledVisitDate.value;
+  const hasPersistedDate = Boolean(persistedDate);
+
+  if (!hasPersistedDate) {
+    if (!scheduledVisitDate.value) {
+      toast.error("Primero debes guardar la fecha de visita.");
+      return;
+    }
+
+    if (scheduledVisitTime.value) {
+      toast.error("Primero guarda la fecha. La hora se habilita despues.");
+      scheduledVisitTime.value = "";
+      return;
+    }
+
+    const { start: wantedStart, end: wantedEnd } = resolveRequestedDateBounds(selected.value);
+    if (isOutsideRequestedRange(scheduledVisitDate.value, wantedStart, wantedEnd)) {
+      toast.error("La fecha debe estar dentro del rango solicitado por el cliente.");
+      return;
+    }
+
+    saving.value = true;
+    try {
+      const response = await supportRequestsService.updateRequestStatus(selected.value.id, selected.value.status, {
+        scheduled_visit_date: scheduledVisitDate.value,
+        scheduled_visit_time: null,
+        repaired_product_id: repairedProductId.value,
+      });
+      selected.value = response.data.data;
+      scheduledVisitDate.value = toDateInput(response.data.data.scheduled_visit_date);
+      scheduledVisitTime.value = normalizeTimeInput(response.data.data.scheduled_visit_time);
+      syncScheduledVisitRange(scheduledVisitDate.value);
+      visitCalendarOpen.value = false;
+      toast.success("Fecha de visita guardada. Ahora puedes cargar la hora.");
+      notifyTechnicianItineraryUpdated();
+      void loadData();
+    } catch (error) {
+      console.error(error);
+      toast.error(extractApiMessage(error) || "No se pudo guardar la fecha de visita.");
+    } finally {
+      saving.value = false;
+    }
+
+    return;
+  }
+
+  if (scheduledVisitDate.value && scheduledVisitDate.value !== persistedDate) {
+    scheduledVisitDate.value = persistedDate;
+    syncScheduledVisitRange(scheduledVisitDate.value);
+    toast.error("La fecha ya fue guardada y no se puede modificar.");
     return;
   }
 
   if (!scheduledVisitTime.value) {
-    toast.error("Completa la hora estimada de visita.");
+    toast.error("Debes indicar la hora estimada de visita.");
     return;
   }
 
@@ -776,29 +905,24 @@ const saveVisitSchedule = async () => {
     return;
   }
 
-  const { start: wantedStart, end: wantedEnd } = resolveRequestedDateBounds(selected.value);
-  if (isOutsideRequestedRange(scheduledVisitDate.value, wantedStart, wantedEnd)) {
-    toast.error("La fecha debe estar dentro del rango solicitado por el cliente.");
-    return;
-  }
-
   saving.value = true;
   try {
     const response = await supportRequestsService.updateRequestStatus(selected.value.id, selected.value.status, {
-      scheduled_visit_date: scheduledVisitDate.value,
+      scheduled_visit_date: persistedDate,
       scheduled_visit_time: scheduledVisitTime.value,
       repaired_product_id: repairedProductId.value,
     });
     selected.value = response.data.data;
-    scheduledVisitDate.value = toDateInput(response.data.data.scheduled_visit_date) || scheduledVisitDate.value;
-    scheduledVisitTime.value = normalizeTimeInput(response.data.data.scheduled_visit_time) || scheduledVisitTime.value;
+    scheduledVisitDate.value = toDateInput(response.data.data.scheduled_visit_date);
+    scheduledVisitTime.value = normalizeTimeInput(response.data.data.scheduled_visit_time);
     syncScheduledVisitRange(scheduledVisitDate.value);
     visitCalendarOpen.value = false;
-    toast.success("Fecha y hora de visita guardadas.");
+    toast.success("Hora estimada de visita guardada.");
+    notifyTechnicianItineraryUpdated();
     void loadData();
   } catch (error) {
     console.error(error);
-    toast.error(extractApiMessage(error) || "No se pudo guardar la fecha y hora de visita.");
+    toast.error(extractApiMessage(error) || "No se pudo guardar la hora de visita.");
   } finally {
     saving.value = false;
   }
@@ -811,13 +935,22 @@ const completeFromPendingList = (item: ApiServiceRequest) => {
 
 onMounted(async () => {
   await loadData({ reloadProducts: true });
+  openVisitFromQueryParam();
 });
+
+watch(
+  () => route.query.visit,
+  () => {
+    if (loading.value) return;
+    openVisitFromQueryParam();
+  }
+);
 </script>
 
 <template>
   <div class="space-y-6 p-6">
     <header class="space-y-2">
-      <h1 class="text-3xl font-bold tracking-tight">Panel tecnico</h1>
+      <h1 class="text-3xl font-bold tracking-tight">Panel técnico</h1>
       <p class="text-muted-foreground">Toma solicitudes, actualiza su estado, selecciona el producto reparado y puntua al cliente al cerrar.</p>
     </header>
 
@@ -925,7 +1058,7 @@ onMounted(async () => {
       <div class="w-full max-w-4xl rounded-lg border bg-card shadow-lg">
         <div class="flex items-center justify-between border-b px-6 py-4">
           <h2 class="text-lg font-semibold">Solicitud #{{ selected.id }}</h2>
-          <button @click="selected = null"><Icon icon="mdi:close" class="h-5 w-5" /></button>
+          <button @click="closeDetail"><Icon icon="mdi:close" class="h-5 w-5" /></button>
         </div>
         <div class="grid max-h-[75vh] gap-5 overflow-y-auto px-6 py-4 text-sm md:grid-cols-[1.1fr_0.9fr]">
           <div class="relative z-20 space-y-3 pointer-events-auto">
@@ -991,7 +1124,7 @@ onMounted(async () => {
                   <button
                     type="button"
                     class="flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-left text-sm transition hover:border-primary/50"
-                    :disabled="saving || (!selectedWantedStart && !selectedWantedEnd)"
+                    :disabled="saving || isVisitDateLocked || (!selectedWantedStart && !selectedWantedEnd)"
                   >
                     <span class="inline-flex items-center gap-2 truncate">
                       <Icon icon="mdi:calendar-month-outline" class="h-4 w-4 text-primary" />
@@ -1026,21 +1159,29 @@ onMounted(async () => {
                   :min="selectedShiftTimeRules.min"
                   :max="selectedShiftTimeRules.max"
                   step="60"
-                  :disabled="saving"
+                  :disabled="saving || !canEditVisitTime"
                   @change="onScheduledVisitTimeChange"
                 />
+                <p v-if="!canEditVisitTime" class="text-[11px] text-muted-foreground">
+                  Guarda primero la fecha de visita para habilitar la hora.
+                </p>
                 <p v-if="selectedShiftTimeRules.hint" class="text-[11px] text-muted-foreground">
                   {{ selectedShiftTimeRules.hint }}
                 </p>
               </div>
               <div class="flex items-center justify-between">
                 <p class="text-[11px] text-muted-foreground">Habilitadas: color intenso. Bloqueadas: atenuadas y tachadas.</p>
-                <button type="button" class="rounded-md border px-2 py-1 text-xs" :disabled="saving || (!scheduledVisitDate && !scheduledVisitTime)" @click.stop.prevent="clearScheduledVisitSchedule">
-                  Limpiar
+                <button
+                  type="button"
+                  class="rounded-md border px-2 py-1 text-xs"
+                  :disabled="saving || (isVisitDateLocked ? !scheduledVisitTime : !scheduledVisitDate)"
+                  @click.stop.prevent="clearScheduledVisitSchedule"
+                >
+                  {{ isVisitDateLocked ? "Limpiar hora" : "Limpiar fecha" }}
                 </button>
               </div>
               <button type="button" class="w-full rounded-md border px-4 py-2 text-sm" :disabled="saving" @click.stop.prevent="saveVisitSchedule">
-                Guardar fecha y hora de visita
+                {{ saveVisitScheduleButtonLabel }}
               </button>
               <textarea
                 v-model="resolutionSummary"
