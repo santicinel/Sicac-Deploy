@@ -382,7 +382,7 @@ onMounted(async () => {
           {{ ratingType === "technicians" ? "Resumen de puntajes de tecnicos" : "Resumen de puntajes de clientes" }}
         </h2>
         <p class="text-xs text-muted-foreground">
-          Promedio: media de puntajes (1 a 5). Asignados: casos con tecnico asignado. Cerrados: casos completados.
+          Promedio: media de puntajes (1 a 5). Asignados: por fecha de creacion. Cerrados y generado: por fecha de cierre.
         </p>
       </div>
 

@@ -198,21 +198,27 @@ class AnalyticsController extends Controller
         ];
 
         // 5. Tabla de Desglose de Datos para Análisis BI
-        $breakdownData = $requests->map(function ($req) {
-            return [
-                'id' => $req->id,
-                'subject' => $req->subject,
-                'description' => $req->description,
-                'resolution_summary' => $req->resolution_summary,
-                'cancellation_reason' => $req->cancellation_reason,
-                'type' => $req->type,
-                'scheduled_visit_date' => $req->scheduled_visit_date ? Carbon::parse($req->scheduled_visit_date)->format('d/m/Y') : null,
-                'scheduled_visit_time' => $req->scheduled_visit_time,
-                'technician' => $req->technician && $req->technician->user ? $req->technician->user->name : 'N/A',
-                'completed_at' => Carbon::parse($req->completed_at)->format('d/m/Y'),
-                'charged_amount' => $req->charged_amount
-            ];
-        })->sortByDesc('completed_at')->values()->toArray();
+        $breakdownData = $requests
+            ->sortByDesc(function ($req) {
+                return Carbon::parse($req->completed_at)->timestamp;
+            })
+            ->values()
+            ->map(function ($req) {
+                return [
+                    'id' => $req->id,
+                    'subject' => $req->subject,
+                    'description' => $req->description,
+                    'resolution_summary' => $req->resolution_summary,
+                    'cancellation_reason' => $req->cancellation_reason,
+                    'type' => $req->type,
+                    'scheduled_visit_date' => $req->scheduled_visit_date ? Carbon::parse($req->scheduled_visit_date)->format('d/m/Y') : null,
+                    'scheduled_visit_time' => $req->scheduled_visit_time,
+                    'technician' => $req->technician && $req->technician->user ? $req->technician->user->name : 'N/A',
+                    'completed_at' => Carbon::parse($req->completed_at)->format('d/m/Y'),
+                    'charged_amount' => $req->charged_amount
+                ];
+            })
+            ->toArray();
 
         return response()->json([
             'success' => true,

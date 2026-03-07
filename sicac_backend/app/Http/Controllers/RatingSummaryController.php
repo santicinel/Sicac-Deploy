@@ -47,14 +47,26 @@ class RatingSummaryController extends Controller
             ->get();
 
         $technicianIds = $aggregates->pluck('technician_id')->filter()->all();
-        $requestStatsByTechnician = TechnicianRequest::query()
+        $assignedCasesByTechnician = TechnicianRequest::query()
             ->select(
                 'technician_id',
-                DB::raw('COUNT(*) as assigned_cases'),
-                DB::raw("SUM(CASE WHEN status = '" . TechnicianRequest::STATUS_COMPLETED . "' THEN 1 ELSE 0 END) as closed_cases")
+                DB::raw('COUNT(*) as assigned_cases')
             )
             ->whereIn('technician_id', $technicianIds)
             ->when($fromDate, fn ($query) => $query->where('created_at', '>=', $fromDate))
+            ->groupBy('technician_id')
+            ->get()
+            ->keyBy('technician_id');
+
+        $closedCasesByTechnician = TechnicianRequest::query()
+            ->select(
+                'technician_id',
+                DB::raw('COUNT(*) as closed_cases')
+            )
+            ->whereIn('technician_id', $technicianIds)
+            ->where('status', TechnicianRequest::STATUS_COMPLETED)
+            ->whereNotNull('completed_at')
+            ->when($fromDate, fn ($query) => $query->where('completed_at', '>=', $fromDate))
             ->groupBy('technician_id')
             ->get()
             ->keyBy('technician_id');
@@ -66,6 +78,9 @@ class RatingSummaryController extends Controller
             )
             ->whereIn('technician_id', $technicianIds)
             ->where('status', TechnicianRequest::STATUS_COMPLETED)
+            ->whereNotNull('completed_at')
+            ->whereNotNull('charged_amount')
+            ->where('charged_amount', '>', 0)
             ->when($fromDate, fn ($query) => $query->where('completed_at', '>=', $fromDate))
             ->groupBy('technician_id')
             ->get()
@@ -80,9 +95,10 @@ class RatingSummaryController extends Controller
             ->groupBy('technician_id')
             ->map(fn ($items) => $items->first());
 
-        return $aggregates->map(function ($row) use ($lastByTechnician, $requestStatsByTechnician, $revenueByTechnician) {
+        return $aggregates->map(function ($row) use ($lastByTechnician, $assignedCasesByTechnician, $closedCasesByTechnician, $revenueByTechnician) {
             $last = $lastByTechnician->get($row->technician_id);
-            $stats = $requestStatsByTechnician->get($row->technician_id);
+            $assigned = $assignedCasesByTechnician->get($row->technician_id);
+            $closed = $closedCasesByTechnician->get($row->technician_id);
             $revenue = $revenueByTechnician->get($row->technician_id);
             $name = $last?->technician?->user?->name;
             [$firstName, $lastName] = $this->splitName($name);
@@ -94,8 +110,8 @@ class RatingSummaryController extends Controller
                 'last_name' => $lastName,
                 'average' => round((float) $row->average, 2),
                 'total' => (int) $row->total,
-                'assigned_cases' => (int) ($stats?->assigned_cases ?? 0),
-                'closed_cases' => (int) ($stats?->closed_cases ?? 0),
+                'assigned_cases' => (int) ($assigned?->assigned_cases ?? 0),
+                'closed_cases' => (int) ($closed?->closed_cases ?? 0),
                 'generated_revenue' => round((float) ($revenue?->generated_revenue ?? 0), 2),
                 'last_review_at' => $last?->created_at?->toDateTimeString(),
                 'last_client_rating' => $last?->score,
@@ -124,14 +140,26 @@ class RatingSummaryController extends Controller
             ->get()
             ->keyBy('id');
 
-        $requestStatsByClient = TechnicianRequest::query()
+        $assignedCasesByClient = TechnicianRequest::query()
             ->select(
                 'requesting_user_id as client_user_id',
-                DB::raw('SUM(CASE WHEN technician_id IS NOT NULL THEN 1 ELSE 0 END) as assigned_cases'),
-                DB::raw("SUM(CASE WHEN status = '" . TechnicianRequest::STATUS_COMPLETED . "' THEN 1 ELSE 0 END) as closed_cases")
+                DB::raw('SUM(CASE WHEN technician_id IS NOT NULL THEN 1 ELSE 0 END) as assigned_cases')
             )
             ->whereIn('requesting_user_id', $clientIds)
             ->when($fromDate, fn ($query) => $query->where('created_at', '>=', $fromDate))
+            ->groupBy('requesting_user_id')
+            ->get()
+            ->keyBy('client_user_id');
+
+        $closedCasesByClient = TechnicianRequest::query()
+            ->select(
+                'requesting_user_id as client_user_id',
+                DB::raw('COUNT(*) as closed_cases')
+            )
+            ->whereIn('requesting_user_id', $clientIds)
+            ->where('status', TechnicianRequest::STATUS_COMPLETED)
+            ->whereNotNull('completed_at')
+            ->when($fromDate, fn ($query) => $query->where('completed_at', '>=', $fromDate))
             ->groupBy('requesting_user_id')
             ->get()
             ->keyBy('client_user_id');
@@ -144,10 +172,11 @@ class RatingSummaryController extends Controller
             ->groupBy('client_user_id')
             ->map(fn ($items) => $items->first());
 
-        return $aggregates->map(function ($row) use ($clientsById, $lastByClient, $requestStatsByClient) {
+        return $aggregates->map(function ($row) use ($clientsById, $lastByClient, $assignedCasesByClient, $closedCasesByClient) {
             $client = $clientsById->get($row->client_user_id);
             $last = $lastByClient->get($row->client_user_id);
-            $stats = $requestStatsByClient->get($row->client_user_id);
+            $assigned = $assignedCasesByClient->get($row->client_user_id);
+            $closed = $closedCasesByClient->get($row->client_user_id);
             [$firstName, $lastName] = $this->splitName($client?->name);
 
             return [
@@ -158,8 +187,8 @@ class RatingSummaryController extends Controller
                 'email' => $client?->email,
                 'average' => round((float) $row->average, 2),
                 'total' => (int) $row->total,
-                'assigned_cases' => (int) ($stats?->assigned_cases ?? 0),
-                'closed_cases' => (int) ($stats?->closed_cases ?? 0),
+                'assigned_cases' => (int) ($assigned?->assigned_cases ?? 0),
+                'closed_cases' => (int) ($closed?->closed_cases ?? 0),
                 'last_review_at' => $last?->created_at?->toDateTimeString(),
                 'last_score' => $last?->score,
                 'last_comment' => $last?->description,

@@ -331,7 +331,7 @@ const fetchAnalytics = async () => {
         '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316'
       ];
 
-      // 1.5. Gráfico de Barras Agrupado: Cantidad de reclamos completados por técnico por mes
+      // 1.5. Gráfico de Barras Agrupado: Cantidad de Casos Completados por técnico por mes
       requestsChartData.value = {
         labels: monthlyRequests.labels,
         datasets: techMonthlyRequests.map((tech, index) => ({
@@ -351,7 +351,7 @@ const fetchAnalytics = async () => {
         }))
       };
 
-      // 3. Gráfico de Torta: Participación histórica por técnico
+      // 3. Gráfico de Torta: Participación de Ingresos (Filtro Actual) por técnico
       pieChartData.value = {
         labels: techHistoricIncome.labels,
         datasets: [
@@ -406,8 +406,8 @@ onMounted(() => {
       <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b pb-4">
         <h2 class="text-2xl font-bold">
           {{ fullscreenChart === 'monthly' ? 'Ingresos Totales por Mes (ARS)' : 
-             fullscreenChart === 'requests' ? 'Reclamos Completados por Mes' : 
-             fullscreenChart === 'grouped' ? 'Ingresos por Técnico (Mensual)' : 'Participación Histórica de Ingresos' }}
+             fullscreenChart === 'requests' ? 'Casos Completados por Mes' : 
+             fullscreenChart === 'grouped' ? 'Ingresos por Técnico (Mensual)' : 'Participación de Ingresos (Filtro Actual)' }}
         </h2>
         
         <div class="flex items-center gap-4 w-full md:w-auto">
@@ -507,7 +507,7 @@ onMounted(() => {
 
         <div class="rounded-lg border bg-card text-card-foreground shadow-sm p-4 md:p-6 flex flex-col justify-center">
           <div class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 class="tracking-tight text-sm font-medium">Reclamos Completados</h3>
+            <h3 class="tracking-tight text-sm font-medium">Casos Completados</h3>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" class="h-4 w-4 text-muted-foreground"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           </div>
           <div class="text-2xl font-bold">+{{ kpis.total_requests }}</div>
@@ -558,7 +558,7 @@ onMounted(() => {
         <!-- Gráfico: Cantidad Reclamos por Técnico -->
         <div class="rounded-lg border bg-card p-4 md:p-6 shadow-sm w-full overflow-hidden group">
           <div class="flex justify-between items-start mb-4">
-            <h2 class="text-lg md:text-xl shrink-0 font-semibold">Reclamos Completados por Técnico</h2>
+            <h2 class="text-lg md:text-xl shrink-0 font-semibold">Casos Completados por Técnico</h2>
             <button @click="openFullscreen('requests')" class="p-1.5 rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted focus:opacity-100" title="Ver en pantalla completa">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
             </button>
@@ -571,10 +571,10 @@ onMounted(() => {
 
       <!-- Fila 3: Histórico y Tabla Dinámica -->
       <div class="grid gap-6 lg:grid-cols-3 w-full">
-        <!-- Gráfico: Participación Histórica (1 Columna) -->
+        <!-- Gráfico: Participación de Ingresos (Filtro Actual) (1 Columna) -->
         <div class="rounded-lg border bg-card p-4 md:p-6 shadow-sm w-full overflow-hidden group lg:col-span-1">
           <div class="flex justify-between items-start mb-4">
-            <h2 class="text-lg md:text-xl font-semibold text-center md:text-left">Participación Histórica</h2>
+            <h2 class="text-lg md:text-xl font-semibold text-center md:text-left">Participación de Ingresos (Filtro Actual)</h2>
             <button @click="openFullscreen('pie')" class="p-1.5 rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted focus:opacity-100" title="Ver en pantalla completa">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
             </button>
@@ -597,7 +597,7 @@ onMounted(() => {
                 <th scope="col" class="px-6 py-3 font-medium">Asunto</th>
                 <th scope="col" class="px-6 py-3 font-medium">Técnico Asignado</th>
                 <th scope="col" class="px-6 py-3 font-medium text-right">Monto Percibido</th>
-                <th scope="col" class="px-6 py-3 font-medium text-right">Fecha Solución</th>
+                <th scope="col" class="px-6 py-3 font-medium text-right">Fecha de Cierre</th>
               </tr>
             </thead>
             <tbody>
