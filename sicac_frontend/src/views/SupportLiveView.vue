@@ -371,9 +371,12 @@ const sendMessage = async () => {
   await fetchAIResponse(chatMessages.value.map((item) => ({ role: item.role, content: item.content })));
 };
 
-watch(showChat, async (open) => {
+watch(showChat, (open) => {
   if (!open || chatMessages.value.length > 0) return;
-  await fetchAIResponse([{ role: "user", content: "Hola, quien eres?" }]);
+  chatMessages.value.push({
+    role: "assistant",
+    content: "Hola, soy Eduardo, asistente virtual de CEA. Te ayudo a generar reclamos o solicitudes. Que problema tenes?",
+  });
 });
 
 onMounted(async () => {

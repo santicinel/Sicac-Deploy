@@ -158,10 +158,12 @@ const sendMessage = async () => {
     await fetchAIResponse(chatMessages.value.map(m => ({ role: m.role, content: m.content })));
 };
 
-watch(showChat, async (val) => {
+watch(showChat, (val) => {
     if (val && chatMessages.value.length === 0) {
-        // Trigger initial hidden greeting
-        await fetchAIResponse([{ role: 'user', content: "Hola, ¿quién eres?" }]);
+        chatMessages.value.push({
+            role: 'assistant',
+            content: 'Hola, soy Eduardo, asistente virtual de CEA. Te ayudo a generar reclamos o solicitudes. Que problema tenes?'
+        });
     }
 });
 

@@ -1,6 +1,7 @@
 import json
 import os
 from typing import List
+import unicodedata
 
 from fastapi import APIRouter, HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -54,9 +55,44 @@ def find_relevant_products(query: str, limit: int = 5):
 
 
 llm_clients = build_llm_clients(temperature=0.25)
+INTRO_RESPONSE = (
+    "Hola, soy Eduardo, asistente virtual de CEA. "
+    "Te ayudo a generar reclamos o solicitudes. Que problema tenes?"
+)
 
 
-def build_fallback_response(relevant_products: List[dict]) -> str:
+def normalize_for_match(value: str) -> str:
+    return (
+        unicodedata.normalize("NFD", value or "")
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+        .strip()
+    )
+
+
+def is_intro_request(query: str) -> bool:
+    text = normalize_for_match(query)
+    if not text:
+        return False
+
+    if text in {"hola", "buenas", "buen dia", "buenas tardes", "buenas noches"}:
+        return True
+
+    intro_markers = [
+        "quien eres",
+        "quien sos",
+        "presentate",
+        "como te llamas",
+        "te presentas",
+    ]
+    return any(marker in text for marker in intro_markers)
+
+
+def build_fallback_response(user_query: str, relevant_products: List[dict]) -> str:
+    if is_intro_request(user_query):
+        return INTRO_RESPONSE
+
     intro = (
         "Asistente en modo demo: falta configurar GPT_API_KEY/OPENAI_API_KEY."
     )
@@ -100,8 +136,10 @@ Reglas:
 4. Si hay riesgo electrico, indica cortar energia y contactar tecnico.
 5. Si reporta falla/problema -> sugeri "Iniciar reclamo".
 6. Si pide ayuda, configuracion o visita sin falla confirmada -> sugeri "Solicitud tecnica".
+7. Si solo saluda o pide presentacion (ej: "hola", "quien sos", "presentate"), responde una sola linea: "Hola, soy Eduardo, asistente virtual de CEA. Te ayudo a generar reclamos o solicitudes. Que problema tenes?"
+8. En respuestas de presentacion no agregues pasos, preguntas, formato ni cierre.
 
-Formato visual obligatorio en cada respuesta:
+Formato visual obligatorio en cada respuesta que NO sea presentacion:
 - "Resumen rapido:" una sola linea (max 18 palabras).
 - "Siguiente paso:" con 1 o 2 bullets cortos.
 - Si faltan datos: "Para avanzar necesito:" con maximo 2 preguntas.
@@ -138,6 +176,9 @@ def chat_endpoint(request: QuestionRequest):
                 user_query = str(message.get("content", ""))
                 break
 
+        if is_intro_request(user_query):
+            return {"response": INTRO_RESPONSE}
+
         relevant_products = find_relevant_products(user_query)
         context_str = "Sin productos relevantes del catalogo para esta consulta."
         if relevant_products:
@@ -152,7 +193,7 @@ def chat_endpoint(request: QuestionRequest):
             context_str = "\n".join(lines)
 
         if not llm_clients:
-            return {"response": build_fallback_response(relevant_products)}
+            return {"response": build_fallback_response(user_query, relevant_products)}
 
         system_prompt = SUPPORT_SYSTEM_PROMPT_TEMPLATE.format(context_str=context_str)
         lc_messages = [SystemMessage(content=system_prompt)]
