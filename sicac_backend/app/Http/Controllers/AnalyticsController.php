@@ -13,6 +13,7 @@ class AnalyticsController extends Controller
         $baseQuery = TechnicianRequest::with('technician.user')
             ->where('status', TechnicianRequest::STATUS_COMPLETED)
             ->whereNotNull('completed_at')
+            ->whereNotNull('scheduled_visit_date')
             ->whereNotNull('charged_amount')
             ->where('charged_amount', '>', 0);
 
@@ -20,7 +21,7 @@ class AnalyticsController extends Controller
         $allCompleted = $baseQuery->get();
         
         $availableMonths = $allCompleted->map(function ($req) {
-            return Carbon::parse($req->completed_at)->format('Y-m');
+            return Carbon::parse($req->scheduled_visit_date)->format('Y-m');
         })->unique()->sort()->values()->toArray();
 
         $availableTechnicians = $allCompleted->map(function ($req) {
@@ -42,18 +43,18 @@ class AnalyticsController extends Controller
 
         if ($request->has('month') && $request->month) {
             $month = $request->month; // YYYY-MM
-            $query->whereYear('completed_at', substr($month, 0, 4))
-                  ->whereMonth('completed_at', substr($month, 5, 2));
+            $query->whereYear('scheduled_visit_date', substr($month, 0, 4))
+                  ->whereMonth('scheduled_visit_date', substr($month, 5, 2));
         }
 
         if ($request->has('period') && $request->period) {
             $period = $request->period;
             if ($period === '3_months') {
-                $query->where('completed_at', '>=', Carbon::now()->subMonths(2)->startOfMonth());
+                $query->where('scheduled_visit_date', '>=', Carbon::now()->subMonths(2)->startOfMonth());
             } elseif ($period === '6_months') {
-                $query->where('completed_at', '>=', Carbon::now()->subMonths(5)->startOfMonth());
+                $query->where('scheduled_visit_date', '>=', Carbon::now()->subMonths(5)->startOfMonth());
             } elseif ($period === '1_year') {
-                $query->where('completed_at', '>=', Carbon::now()->subMonths(11)->startOfMonth());
+                $query->where('scheduled_visit_date', '>=', Carbon::now()->subMonths(11)->startOfMonth());
             }
         }
 
@@ -77,8 +78,8 @@ class AnalyticsController extends Controller
         } else {
             // Si no hay filtro de periodo, usar min y max de los requests
             if ($requests->count() > 0) {
-                $minDate = Carbon::parse($requests->min('completed_at'))->startOfMonth();
-                $maxDate = Carbon::parse($requests->max('completed_at'))->startOfMonth();
+                $minDate = Carbon::parse($requests->min('scheduled_visit_date'))->startOfMonth();
+                $maxDate = Carbon::parse($requests->max('scheduled_visit_date'))->startOfMonth();
                 $current = clone $minDate;
                 while ($current <= $maxDate) {
                     $allMonthsInRange[] = $current->format('Y-m');
@@ -95,7 +96,7 @@ class AnalyticsController extends Controller
         // 1. Ingresos totales generados por mes (Eje X: Meses, Eje Y: Monto ARS)
         $monthlyIncomeRaw = array_fill_keys($allMonthsInRange, 0);
         foreach ($requests as $req) {
-            $month = Carbon::parse($req->completed_at)->format('Y-m');
+            $month = Carbon::parse($req->scheduled_visit_date)->format('Y-m');
             if (isset($monthlyIncomeRaw[$month])) {
                 $monthlyIncomeRaw[$month] += (float) $req->charged_amount;
             }
@@ -109,7 +110,7 @@ class AnalyticsController extends Controller
         // 1.5. Cantidad de reclamos completados por mes
         $monthlyRequestsRaw = array_fill_keys($allMonthsInRange, 0);
         foreach ($requests as $req) {
-            $month = Carbon::parse($req->completed_at)->format('Y-m');
+            $month = Carbon::parse($req->scheduled_visit_date)->format('Y-m');
             if (isset($monthlyRequestsRaw[$month])) {
                 $monthlyRequestsRaw[$month] += 1;
             }
@@ -137,7 +138,7 @@ class AnalyticsController extends Controller
                 $technicianMonthlyRequestsRaw[$techId] = array_fill_keys($allMonthsInRange, 0);
             }
 
-            $month = Carbon::parse($req->completed_at)->format('Y-m');
+            $month = Carbon::parse($req->scheduled_visit_date)->format('Y-m');
             if (isset($technicianMonthlyRaw[$techId][$month])) {
                 $technicianMonthlyRaw[$techId][$month] += (float) $req->charged_amount;
                 $technicianMonthlyRequestsRaw[$techId][$month] += 1;
@@ -200,7 +201,7 @@ class AnalyticsController extends Controller
         // 5. Tabla de Desglose de Datos para Análisis BI
         $breakdownData = $requests
             ->sortByDesc(function ($req) {
-                return Carbon::parse($req->completed_at)->timestamp;
+                return Carbon::parse($req->scheduled_visit_date)->timestamp;
             })
             ->values()
             ->map(function ($req) {

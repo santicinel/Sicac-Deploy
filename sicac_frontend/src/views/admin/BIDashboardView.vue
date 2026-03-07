@@ -28,6 +28,16 @@ const availableMonths = ref<string[]>([]);
 const availableTechnicians = ref<{id: number, name: string}[]>([]);
 const kpis = ref<any>(null);
 
+const colors = [
+  '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316', '#3b82f6', '#14b8a6', '#6366f1'
+];
+
+const getTechnicianColor = (techName: string) => {
+  const index = availableTechnicians.value.findIndex(t => t.name === techName);
+  if (index === -1) return '#94a3b8'; // Fallback color
+  return colors[index % colors.length];
+};
+
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -86,6 +96,8 @@ const breakdownData = ref<BreakdownRow[]>([]);
 
 // Table State
 const expandedRows = ref<Set<number>>(new Set());
+
+const selectedDescriptionItem = ref<BreakdownRow | null>(null);
 
 const toggleRow = (id: number) => {
   const newSet = new Set(expandedRows.value);
@@ -327,16 +339,12 @@ const fetchAnalytics = async () => {
         ]
       };
 
-      const colors = [
-        '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316'
-      ];
-
       // 1.5. Gráfico de Barras Agrupado: Cantidad de Casos Completados por técnico por mes
       requestsChartData.value = {
         labels: monthlyRequests.labels,
-        datasets: techMonthlyRequests.map((tech, index) => ({
+        datasets: techMonthlyRequests.map((tech) => ({
           label: tech.technician_name,
-          backgroundColor: colors[index % colors.length],
+          backgroundColor: getTechnicianColor(tech.technician_name),
           data: tech.data,
         }))
       };
@@ -344,9 +352,9 @@ const fetchAnalytics = async () => {
       // 2. Gráfico de Barras Agrupado: Ingresos por técnico por mes
       groupedBarChartData.value = {
         labels: monthlyIncome.labels,
-        datasets: techMonthlyIncome.map((tech, index) => ({
+        datasets: techMonthlyIncome.map((tech) => ({
           label: tech.technician_name,
-          backgroundColor: colors[index % colors.length],
+          backgroundColor: getTechnicianColor(tech.technician_name),
           data: tech.data,
         }))
       };
@@ -356,7 +364,7 @@ const fetchAnalytics = async () => {
         labels: techHistoricIncome.labels,
         datasets: [
           {
-            backgroundColor: colors.slice(0, techHistoricIncome.labels.length),
+            backgroundColor: techHistoricIncome.labels.map(label => getTechnicianColor(label)),
             data: techHistoricIncome.data,
           }
         ]
@@ -443,6 +451,59 @@ onMounted(() => {
            <div class="w-full max-w-2xl h-full cursor-pointer">
              <Pie :data="pieChartData" :options="{ ...pieChartOptions, maintainAspectRatio: false }" />
            </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Description Modal -->
+    <div
+      v-if="selectedDescriptionItem"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+    >
+      <div class="w-full max-w-lg rounded-lg border bg-card text-card-foreground shadow-lg relative max-h-[90vh] overflow-y-auto">
+        <div class="flex items-start justify-between border-b px-6 py-4">
+          <div>
+            <h2 class="text-lg font-semibold">Detalle del reclamo</h2>
+            <p class="text-sm text-muted-foreground">
+              {{ selectedDescriptionItem.id }} - {{ selectedDescriptionItem.subject }}
+            </p>
+          </div>
+          <button class="text-muted-foreground hover:text-foreground" @click="selectedDescriptionItem = null">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+        <div class="space-y-4 px-6 py-4 text-sm">
+          <div>
+            <p class="text-xs font-semibold uppercase text-muted-foreground">Asunto</p>
+            <p>{{ selectedDescriptionItem.subject }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase text-muted-foreground">Detalle</p>
+            <p class="whitespace-pre-wrap">{{ selectedDescriptionItem.description || 'Sin descripción' }}</p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase text-muted-foreground">Técnico asignado</p>
+            <p>{{ selectedDescriptionItem.technician }}</p>
+            <p v-if="selectedDescriptionItem.scheduled_visit_date" class="text-xs text-muted-foreground mt-1">
+              Visita programada: {{ selectedDescriptionItem.scheduled_visit_date }} {{ selectedDescriptionItem.scheduled_visit_time ? 'a las ' + selectedDescriptionItem.scheduled_visit_time : '' }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase text-muted-foreground">Monto Cobrado</p>
+            <p class="font-medium text-green-600 dark:text-green-500">{{ formatCurrency(selectedDescriptionItem.charged_amount) }}</p>
+          </div>
+          <div v-if="selectedDescriptionItem.resolution_summary">
+            <p class="text-xs font-semibold uppercase text-muted-foreground">Resolución</p>
+            <p class="whitespace-pre-wrap">{{ selectedDescriptionItem.resolution_summary }}</p>
+          </div>
+        </div>
+        <div class="flex justify-end border-t px-6 py-3">
+          <button
+            class="rounded-md border px-4 py-2 text-sm"
+            @click="selectedDescriptionItem = null"
+          >
+            Cerrar
+          </button>
         </div>
       </div>
     </div>
@@ -635,7 +696,13 @@ onMounted(() => {
                       <div class="space-y-3">
                         <div>
                           <span class="font-semibold text-foreground block mb-1">Descripción Inicial</span>
-                          <p class="text-muted-foreground whitespace-pre-wrap">{{ item.description }}</p>
+                          <button 
+                            @click="selectedDescriptionItem = item"
+                            class="text-left text-sm text-muted-foreground hover:text-primary transition-colors hover:underline line-clamp-2"
+                            title="Ver descripción completa"
+                          >
+                            {{ item.description || 'Sin descripción' }}
+                          </button>
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                           <div>
