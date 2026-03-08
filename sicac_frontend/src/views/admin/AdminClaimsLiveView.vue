@@ -43,6 +43,13 @@ const getDisplayStatus = (item: Pick<ApiServiceRequest, "status" | "technician_i
   return item.technician_id ? "assigned" : "pending";
 };
 
+const isFinalStatus = (status: ServiceRequestStatus) => status === "completed" || status === "cancelled";
+
+const isSelectedReadOnly = computed(() => {
+  if (!selected.value) return false;
+  return isFinalStatus(selected.value.status);
+});
+
 type DateOrder = "desc" | "asc";
 type DatePreset = "all" | "last_7_days" | "last_30_days" | "last_3_months" | "last_6_months" | "this_month" | "last_month";
 
@@ -189,6 +196,11 @@ const openModal = (item: ApiServiceRequest) => {
 
 const saveChanges = async () => {
   if (!selected.value) return;
+  if (isSelectedReadOnly.value) {
+    toast.error("La solicitud ya esta cerrada y no se puede editar.");
+    return;
+  }
+
   const cancellationReason = modalCancellationReason.value.trim();
   const normalizedChargedAmount = normalizeChargedAmount(modalChargedAmount.value);
   const nextStatus =
@@ -334,7 +346,10 @@ onMounted(async () => {
           <p v-if="selected.resolution_summary"><span class="font-semibold">Detalle de resolucion actual:</span> {{ selected.resolution_summary }}</p>
           <p v-if="selected.charged_amount !== null && selected.charged_amount !== undefined"><span class="font-semibold">Monto cobrado actual:</span> {{ formatCurrency(selected.charged_amount) }}</p>
           <p v-if="selected.cancellation_reason"><span class="font-semibold">Motivo de cancelacion actual:</span> {{ selected.cancellation_reason }}</p>
-          <select v-model="modalStatus" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+          <p v-if="isSelectedReadOnly" class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Esta solicitud esta cerrada (completada o cancelada) y solo puede visualizarse.
+          </p>
+          <select v-model="modalStatus" :disabled="isSelectedReadOnly || saving" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
             <option value="pending">Sin asignacion</option>
             <option value="assigned">Asignado</option>
             <option value="completed">Completada</option>
@@ -345,6 +360,7 @@ onMounted(async () => {
             v-model="modalResolutionSummary"
             rows="3"
             placeholder="Explica que se hizo para resolver la tarea (obligatorio)"
+            :disabled="isSelectedReadOnly || saving"
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
           <input
@@ -354,6 +370,7 @@ onMounted(async () => {
             min="0"
             step="0.01"
             placeholder="Monto cobrado (obligatorio)"
+            :disabled="isSelectedReadOnly || saving"
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
           <textarea
@@ -361,16 +378,17 @@ onMounted(async () => {
             v-model="modalCancellationReason"
             rows="3"
             placeholder="Justificacion de cancelacion (obligatoria)"
+            :disabled="isSelectedReadOnly || saving"
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
-          <select v-model.number="modalTechnicianId" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+          <select v-model.number="modalTechnicianId" :disabled="isSelectedReadOnly || saving" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
             <option :value="null">Sin tecnico asignado</option>
             <option v-for="tech in technicians" :key="tech.id" :value="tech.id">
               {{ tech.user?.name || `${tech.first_name || ""} ${tech.last_name || ""}` }}
             </option>
           </select>
-          <button class="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground" :disabled="saving" @click="saveChanges">
-            {{ saving ? "Guardando..." : "Guardar cambios" }}
+          <button class="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60" :disabled="saving || isSelectedReadOnly" @click="saveChanges">
+            {{ saving ? "Guardando..." : isSelectedReadOnly ? "Solicitud cerrada" : "Guardar cambios" }}
           </button>
         </div>
       </div>

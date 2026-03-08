@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { useCartStore } from "@/store/cartStore";
 
 export type Role = "admin" | "technician" | "user";
 
@@ -47,7 +48,11 @@ export const useAuthStore = defineStore("auth", () => {
         saveUserToStorage(nextUser);
     };
 
-    const logout = () => setUser(null);
+    const logout = () => {
+        const cartStore = useCartStore();
+        cartStore.clearCart();
+        setUser(null);
+    };
 
     return {
         user,

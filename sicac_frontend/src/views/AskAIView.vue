@@ -138,6 +138,19 @@ const scrollToBottom = () => {
     }, 100);
 };
 
+const cleanAssistantText = (value: string) => {
+    if (!value) return '';
+    return value
+        .replace(/\r\n/g, '\n')
+        .replace(/^#{1,6}\s*/gm, '')
+        .replace(/\*\*/g, '')
+        .replace(/__(.*?)__/g, '$1')
+        .replace(/`{1,3}([^`]+)`{1,3}/g, '$1')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+};
+
 const submitForm = async () => {
     loading.value = true;
     recommendation.value = null;
@@ -226,12 +239,12 @@ const submitForm = async () => {
         }
 
         const data = await response.json();
-        recommendation.value = data.response;
+        recommendation.value = cleanAssistantText(data.response || '');
         recommendedProducts.value = data.products || [];
         systemPromptUsed.value = data.system_prompt_used || "";
 
          // Initialize Chat History
-        chatMessages.value.push({ role: 'assistant', content: data.response });
+        chatMessages.value.push({ role: 'assistant', content: recommendation.value });
 
     } catch (error) {
         console.error("Error submitting AI request:", error);
@@ -275,7 +288,7 @@ const sendChatMessage = async () => {
         if (!response.ok) throw new Error("Chat Error");
         
         const data = await response.json();
-        chatMessages.value.push({ role: 'assistant', content: data.response });
+        chatMessages.value.push({ role: 'assistant', content: cleanAssistantText(data.response || '') });
 
     } catch (e) {
         chatMessages.value.push({ role: 'assistant', content: "Lo siento, tuve un problema de conexión. ¿Podés repetir?" });

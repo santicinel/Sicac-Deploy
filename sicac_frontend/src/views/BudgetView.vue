@@ -33,7 +33,7 @@ const router = useRouter();
 const budgetHistory = ref<BudgetDocument[]>([]);
 const budgetHistoryLoading = ref(false);
 const budgetHistoryError = ref('');
-const budgetHistoryCollapsed = ref(false);
+const budgetHistoryCollapsed = ref(true);
 const budgetHistorySearch = ref('');
 type BudgetDatePreset = 'all' | 'today' | 'last_7_days' | 'last_30_days' | 'last_3_months' | 'last_6_months' | 'last_12_months';
 const budgetHistoryDatePreset = ref<BudgetDatePreset>('all');
@@ -121,6 +121,12 @@ const filteredBudgetHistory = computed(() => {
         if (Number.isNaN(generated.getTime())) return false;
         return generated >= range.from && generated <= range.to;
     });
+});
+
+const budgetHistoryCompactSummary = computed(() => {
+    const total = budgetHistory.value.length;
+    if (total === 0) return 'Sin presupuestos guardados.';
+    return `${total} presupuesto${total === 1 ? '' : 's'} guardado${total === 1 ? '' : 's'}. Presiona "Expandir" para ver el detalle.`;
 });
 
 const extractApiMessage = (error: unknown): string => {
@@ -344,7 +350,7 @@ onMounted(async () => {
                 </button>
             </div>
             <div v-if="budgetHistoryCollapsed" class="px-6 py-6 text-sm text-muted-foreground">
-                Historial comprimido.
+                {{ budgetHistoryCompactSummary }}
             </div>
             <template v-else>
                 <div class="grid gap-3 border-b px-6 py-4 md:grid-cols-[minmax(0,1fr)_220px]">
